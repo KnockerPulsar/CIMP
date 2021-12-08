@@ -1,71 +1,80 @@
-import cv2
-import numpy as np
+from ui import *
+from utils import clean_up, get_mouse_position, init, init_drawing_buffer, point_screen_to_image_coordinates
+from pynput.mouse import Listener
+from utils import overlay_images, draw, Globals, on_click
+from time import time
 
-
-WINDOW_NAME = "Results"
-
-
-
-
-def init() -> cv2.VideoCapture:
-    """
-    Only prepares the webcam and creates a window
-    Might have more logic later on
-    """
-    vc = cv2.VideoCapture(0)
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-
-    return vc
-
-
-def display_ui(image: np.ndarray):
-    """
-    To display the camera image, drawing buffer, and UI from back to front
-    Only displays how to quit for now
-    Assumes that the given image is in RGB
-    """
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
-    # Display quit text at the top left corner
-    cv2.putText(image,
-                "Press q to quit",
-                org=(20, 40),
-                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=1,
-                color=(10, 255, 0),
-                thickness=2)
-
-    # Display the image in the window
-    cv2.imshow(WINDOW_NAME, image)
-
-
-def check_selection() -> bool:
-    """
-    Checks if the user pressed q to quit
-    """
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        return False
-
-    return True
-
+# (Tarek) TODO: Perhaps add linear interpolation fill gaps when the mouse moves too much?
 
 def main():
-    webcam = init()
+    global Globals # Holds all global variables
+
+    # Start webcam capture thread, setup window
+    webcam, draw_buffer = init()
+
+    # So we can break the main loop
+    # Yes, we can also use `brake`, but having the input checks in a fucntion
+    # seems neater.
     loop = True
 
-    while loop:
+    # A copy of the previous frame in case the thread hasn't received any new ones
+    prev_frame = None
 
-        _, frame = webcam.read()
+    with Listener(on_click=on_click) as listener: # Listens for mouse events
+        while loop:
 
-        # Since OpenCV captures images in BGR for some reason
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # To calculate FPS
+            start_time = time() 
 
-        display_ui(frame)
-        loop = check_selection()
+            # Checck if the thread has a new frame
+            frame_available, frame = webcam.get_frame()
 
-    print("Exiting")
-    webcam.release()
-    cv2.destroyWindow("Results")
+            # If there's no new frame, use the previous one
+            if not frame_available:
+                frame = prev_frame
+
+            # Get image rect (top left x&y + width and height) in screen space coordinates
+            canvas = cv2.getWindowImageRect(Globals.WINDOW_NAME)
+
+            # Get pointer (mouse for now) position in screenspace coordinates
+            # If your screen is 1920x1080 pixels, your mouse coodinates are in that range.
+            pointer_pos = get_mouse_position()
+
+            # Convert the screenspace coordinates into canvas/image space coordinates
+            # AKA get where the pointer is relative to the top left of the canvas.
+            pointer_pos_image_coordinates = point_screen_to_image_coordinates(
+                pointer_pos,
+                canvas,
+                (frame.shape[0], frame.shape[1])
+            )
+
+            # Since OpenCV captures images in BGR for some reason
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # (Tarek) TODO: Do image processing, hand detection, and gesture detection from here
+
+            # If a draw command is issued, draw in the frame
+            # Can be moved to `on_click` but only for mouse clicks. That might reduce drawing lag
+            # Once we do the detection ourselves, we'll have to check in the loop anyway
+            pointer_inside = point_inside_canvas(pointer_pos, canvas)
+            if Globals.draw_command and  pointer_inside:
+                draw_buffer = draw(pointer_pos_image_coordinates,
+                                10, draw_buffer)
+
+            # Paint the buffer on top of the base webcam image
+            frame = overlay_images([frame, draw_buffer])
+
+            # Draw the image and UI
+            display_ui(frame, pointer_pos, start_time)
+
+            # Copy the frame for later use
+            prev_frame = frame
+
+            # Check if we want to quit
+            loop = check_selection()
+
+    # Clean up
+    clean_up(webcam)
 
 
 if __name__ == "__main__":
