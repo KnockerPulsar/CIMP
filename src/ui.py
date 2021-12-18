@@ -1,7 +1,7 @@
 from time import time
 from typing import Tuple
-import cv2
 import numpy as np
+import cv2
 from threaded_capture import ThreadedVideoStream
 from utils import Globals, point_inside_canvas, inset_rect
 
@@ -15,7 +15,6 @@ def display_ui(image: np.ndarray, pointer_pos: Tuple[int, int], start_time: floa
     Assumes that the given image is in RGB
     """
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-
     # Display quit text at the top left corner
     cv2.putText(image,
                 "Press q to quit",
@@ -53,5 +52,6 @@ def check_selection() -> bool:
     """
     if cv2.waitKey(1) & 0xFF == ord('q'):
         return False
+
 
     return True
