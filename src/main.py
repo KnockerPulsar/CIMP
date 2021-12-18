@@ -23,6 +23,14 @@ def main():
     # A copy of the previous frame in case the thread hasn't received any new ones
     prev_frame = None
     count = 0
+    theta = 2.53
+    ec_x = 1.6
+    ec_y = 2.41
+    a = 25.39
+    b = 14.03
+    cb0 = 1
+    cr0 = 1
+
     with Listener(on_click=on_click) as listener:  # Listens for mouse events
         while loop:
             count = count + 1
@@ -33,7 +41,7 @@ def main():
             frame_available, frame = webcam.get_frame()
 
             # flip frame
-            frame = cv2.flip(frame,1)
+            frame = cv2.flip(frame, 1)
 
             # If there's no new frame, use the previous one
             if not frame_available:
@@ -54,7 +62,6 @@ def main():
                 (frame.shape[0], frame.shape[1])
             )
 
-            
             # Since OpenCV captures images in BGR for some reason
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -62,101 +69,43 @@ def main():
 
             # YCbCr conversion and thresholding
             # the following variables were taken from hand gestures paper
-            theta = 2.53
-            ec_x = 1.6
-            ec_y = 2.41
-            a = 25.39 
-            b = 14.03 
-            cb0 = 77
-            cr0 = 133
-            
+            # cb0 77 -127
+            # cr120
+
+
             if cv2.waitKey(1) & 0xFF == ord('w'):
-                cb0 = cb0+1
-                print("cb0 increased")
+                cb0 += 10
+                print(cb0)
+
             if cv2.waitKey(1) & 0xFF == ord('e'):
-                cb0 = cb0-1
-                print("cb0 decreased")
+                cb0 -= 10
+                print(cb0)
+
             if cv2.waitKey(1) & 0xFF == ord('s'):
-                cr0 = cr0+1
-                print("cr0 increased")
+                cr0 += 10
+                print(cr0)
+
             if cv2.waitKey(1) & 0xFF == ord('d'):
-                cr0 = cr0+1
-                print("cr0 decreased")
+                cr0 -= 10
+                print(cr0)
 
             # dimensions of current frame
             height, width, channels = frame.shape
-            # r,g,b = cv2.split(frame)
 
             frame_YCrCb = cv2.cvtColor(frame, cv2.COLOR_RGB2YCrCb)
-            Y,cr,cb = cv2.split(frame_YCrCb)
+            Y, cr, cb = cv2.split(frame_YCrCb)
 
-            # newFrame=frame
-
-            # if count%30 == 0:
             newFrame = np.zeros(frame.shape)
-            # for h in range(0,height):        
-            #     for w in range(0,width):
-            #         x = np.cos(theta) * (cb[h][w]-cb0) + np.sin(theta) * (cr[h][w] - cr0)
-            #         y = -np.sin(theta) * (cb[h][w]-cb0) + np.cos(theta) * (cr[h][w] - cr0)
-            #         # print("x= ",x)
-            #         # print('y= ',y)
-            #         skin_threshold = (((x-ec_x)*(x-ec_x))/(a*a)) + (((y-ec_y)*(y-ec_y))/(b*b))
-            #         # print(skin_threshold.shape)
-            #         if skin_threshold <= 1:
-            #             newFrame[h][w] = 1
-            #         else: newFrame[h][w] = 0
-            
+
             x = np.cos(theta) * (cb-cb0) + np.sin(theta) * (cr - cr0)
             y = -np.sin(theta) * (cb-cb0) + np.cos(theta) * (cr - cr0)
-            skin_threshold = (((x-ec_x)*(x-ec_x))/(a*a)) + (((y-ec_y)*(y-ec_y))/(b*b))
-            # mask = np.zeros((skin_threshold.shape[0],skin_threshold.shape[1]))
+            skin_threshold = (((x-ec_x)*(x-ec_x))/(a*a)) + \
+                (((y-ec_y)*(y-ec_y))/(b*b))
             mask = skin_threshold <= 1
             newFrame[mask] = 1
-            newFrame *=255
+            newFrame *= 255
             newFrame = newFrame.astype('uint8')
-            # print(newFrame.shape)
-            # print(np.amin(cb))
-            # print(np.amin(cr))
-            # print("shape of mask= ",mask.shape)
-            # print("shape of newFrame= ",newFrame.shape)
-                    
 
-
-            ## attempts at skin detection
-            # #converting from gbr to hsv color space
-            # img_HSV = cv2.cvtColor(frame, cv2.COLOR_RGB2HSV)
-
-            # #skin color range for hsv color space 
-            # HSV_mask = cv2.inRange(img_HSV, (0, 15, 0), (17,170,255)) 
-            # HSV_mask = cv2.morphologyEx(HSV_mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
-
-            # #converting from gbr to YCbCr color space
-            # img_YCrCb = cv2.cvtColor(frame, cv2.COLOR_RGB2YCrCb)
-
-            # #skin color range for hsv color space 
-            # YCrCb_mask = cv2.inRange(img_YCrCb, (0, 135, 85), (255,180,135)) 
-            # YCrCb_mask = cv2.morphologyEx(YCrCb_mask, cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
-
-            # #merge skin detection (YCbCr and hsv)
-            # global_mask=cv2.bitwise_and(YCrCb_mask,HSV_mask)
-            # global_mask=cv2.medianBlur(global_mask,3)
-            # global_mask = cv2.morphologyEx(global_mask, cv2.MORPH_OPEN, np.ones((4,4), np.uint8))
-
-
-            # HSV_result = cv2.bitwise_not(HSV_mask)
-            # YCrCb_result = cv2.bitwise_not(YCrCb_mask)
-            # global_result=cv2.bitwise_not(global_mask)
-            # global_result=cv2.bitwise_not(global_result)
-
-            ## different attempt
-            # detector = skinDetector(frame)
-            # result = detector.find_skin()
-
-            
-
-            # If a draw command is issued, draw in the frame
-            # Can be moved to `on_click` but only for mouse clicks. That might reduce drawing lag
-            # Once we do the detection ourselves, we'll have to check in the loop anyway
             pointer_inside = point_inside_canvas(pointer_pos, canvas)
             if Globals.draw_command and pointer_inside:
                 draw_buffer = draw(pointer_pos_image_coordinates,
