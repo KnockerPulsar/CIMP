@@ -23,8 +23,11 @@ def display_ui(image: np.ndarray, pointer_pos: Tuple[int, int], start_time: floa
                 fontScale=0.5,
                 color=(10, 255, 0),
                 thickness=1)
+    diff="nan"
+    if (time()-start_time) !=0:
+        diff =1/(time()-start_time)
     cv2.putText(image,
-                f"FPS ~{1/(time()-start_time)}",
+                f"FPS ~{diff}",
                 org=(20, 80),
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                 fontScale=0.5,
