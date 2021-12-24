@@ -298,3 +298,5 @@ def get_hand_bbs(frame, hands, padding=20, draw_on_frame=True):
 
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
     return frame, bboxes
+
+

@@ -6,9 +6,11 @@ from threaded_capture import ThreadedVideoStream
 from utils import Globals, point_inside_canvas, inset_rect
 
 
-
-
-def display_ui(image: np.ndarray, pointer_pos: Tuple[int, int], start_time: float, border_offset=10):
+def display_ui(image: np.ndarray,
+               pointer_pos: Tuple[int, int],
+               start_time: float,
+               num_fingers: int,
+               border_offset=10):
     """
     To display the camera image, drawing buffer, and UI from back to front
     Only displays how to quit for now
@@ -23,9 +25,9 @@ def display_ui(image: np.ndarray, pointer_pos: Tuple[int, int], start_time: floa
                 fontScale=0.5,
                 color=(10, 255, 0),
                 thickness=1)
-    diff="nan"
-    if (time()-start_time) !=0:
-        diff =1/(time()-start_time)
+    diff = "nan"
+    if (time() - start_time) != 0:
+        diff = 1 / (time() - start_time)
     cv2.putText(image,
                 f"FPS ~{diff}",
                 org=(20, 80),
@@ -34,13 +36,21 @@ def display_ui(image: np.ndarray, pointer_pos: Tuple[int, int], start_time: floa
                 color=(10, 255, 0),
                 thickness=1)
 
+    cv2.putText(image,
+                f"Detected \"fingers\" {num_fingers}",
+                org=(20, 110),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.5,
+                color=(10, 255, 0),
+                thickness=1)
+
     canvas_rect = cv2.getWindowImageRect(Globals.WINDOW_NAME)
     pointer_inside = point_inside_canvas(pointer_pos, canvas_rect)
 
-    image_frame = inset_rect(
-        (0, 0, image.shape[1], image.shape[0]), border_offset)
+    image_frame = inset_rect((0, 0, image.shape[1], image.shape[0]),
+                             border_offset)
 
-    if(pointer_inside):
+    if (pointer_inside):
         image = cv2.rectangle(image, image_frame, (0, 255, 0), 5)
     else:
         image = cv2.rectangle(image, image_frame, (0, 0, 255), 5)
@@ -55,6 +65,5 @@ def check_selection() -> bool:
     """
     if cv2.waitKey(1) & 0xFF == ord('q'):
         return False
-
 
     return True
