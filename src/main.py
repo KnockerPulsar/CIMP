@@ -1,6 +1,6 @@
 from cv2 import dilate, erode, findContours
 from numpy import unique
-from numpy.core.numeric import convolve, count_nonzero
+from numpy.core.numeric import convolve, count_nonzero, multiply
 from ui import *
 from utils import clean_up, get_hand_bbs, get_mouse_position, init, init_drawing_buffer, point_screen_to_image_coordinates, hsv_threshold
 from pynput.mouse import Listener
@@ -33,10 +33,28 @@ def finger_detection_options(bitwise_and_or, do_skeletonize, do_threshold):
 def thresholdHandYCbCr(image):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
     image[:, :, 0] = 0
-    image = cv2.medianBlur(image, 21)
-    new_frame = np.zeros(image.shape[:2], dtype=np.uint8)
-    new_frame[np.where(image[:, :, 1] < 120)] = 255
-    new_frame = 255 - new_frame
+    image = cv2.medianBlur(image, 15)
+    new_frame1 = np.ones(image.shape[:2], dtype=np.uint8)
+    #new_frame2 = np.ones(image.shape[:2], dtype=np.uint8)
+    window_size = 20
+    center_x = int(image.shape[0] / 2)
+    center_y = int(image.shape[1] / 2)
+    skin_cr = image[center_x - window_size:center_x + window_size, center_y - window_size:center_y + window_size, 1]
+    # skin_cb = image[center_x - window_size:center_x + window_size, center_y - window_size:center_y + window_size, 2]
+    # skin_cb = np.mean(skin_cb)
+    skin_cr = np.mean(skin_cr)
+    #cr threshholding
+    new_frame1[np.where(image[:, :, 1] > (skin_cr + 7))] = 0
+    new_frame1[np.where(image[:, :, 1] < (skin_cr - 7))] = 0
+    new_frame1[np.where(new_frame1[:, :] == 1)] = 255
+    #cb threshholding
+    # new_frame2[np.where(image[:, :, 2] > (skin_cb + 7))] = 0
+    # new_frame2[np.where(image[:, :, 2] < (skin_cb - 7))] = 0
+    # new_frame2[np.where(new_frame2[:, :] == 1)] = 255
+    # new_frame[np.where(new_frame1[:, :] == new_frame2[:, :])] = 255
+    # new_frame[np.where(image[:, :, 1] > skin_cr - 20 and image[:, :, 1] < skin_cr + 20)] = 255
+    # new_frame[np.where(image[:,:, 1] < 120)] = 255
+    new_frame = 255 - new_frame1
     return new_frame
 
 
@@ -55,7 +73,7 @@ def main():
     prev_frame = None
 
     # For finger detection debugging
-    bitwise_and_or, do_skeletonize, do_threshold = True, True, True
+    bitwise_and_or, do_skeletonize, do_threshold = False, False, True
     num_fingers = 0
     num_fingers_list = [0]
     num_fingers_window = 120
