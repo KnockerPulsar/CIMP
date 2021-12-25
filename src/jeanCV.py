@@ -16,7 +16,7 @@ class skinDetector(object):
 		# 	print("IMAGE NOT FOUND")
 		# 	exit(1)                          
 		#self.image = cv2.resize(self.image,(600,600),cv2.INTER_AREA)	
-		self.image = imageName
+		self.image = cv2.medianBlur(imageName,ksize=15)
 		self.HSV_image = cv2.cvtColor(self.image, cv2.COLOR_RGB2HSV)
 		self.YCbCr_image = cv2.cvtColor(self.image, cv2.COLOR_RGB2YCR_CB)
 		self.binary_mask_image = self.HSV_image
@@ -47,7 +47,9 @@ class skinDetector(object):
 	#Function that applies Watershed and morphological operations on the thresholded image
 	def __region_based_segmentation(self):
 		#morphological operations
-		image_foreground = cv2.erode(self.binary_mask_image,None,iterations = 3)     	#remove noise
+		self.binary_mask_image = cv2.bitwise_not(self.binary_mask_image)
+		image_foreground = cv2.erode(self.binary_mask_image,np.ones((5,5)))     	#remove noise
+		return image_foreground
 		dilated_binary_image = cv2.dilate(self.binary_mask_image,None,iterations = 3)   #The background region is reduced a little because of the dilate operation
 		ret,image_background = cv2.threshold(dilated_binary_image,1,128,cv2.THRESH_BINARY)  #set all background regions to 128
 

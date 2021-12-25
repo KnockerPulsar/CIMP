@@ -1,10 +1,8 @@
 import numpy as np
-from numpy.lib.arraypad import pad
 import pyautogui
 import cv2
 
 from typing import List, Tuple
-from pynput.mouse import Button
 from threaded_capture import ThreadedVideoStream
 
 import mediapipe as mp
@@ -14,16 +12,15 @@ mp_drawing_styles = mp.solutions.drawing_styles
 mp_hands = mp.solutions.hands
 
 
-def init() -> cv2.VideoCapture:
+def init(win_name) -> cv2.VideoCapture:
     """
     Only prepares the webcam and creates a window
     Might have more logic later on
     """
-    global Globals
 
     vc = ThreadedVideoStream()
-    cv2.namedWindow(Globals.WINDOW_NAME, cv2.WINDOW_GUI_NORMAL)
-    cv2.resizeWindow(Globals.WINDOW_NAME, 640, 480)
+    cv2.namedWindow(win_name, cv2.WINDOW_GUI_NORMAL)
+    cv2.resizeWindow(win_name, 640, 480)
 
     # Wait until the thread actually starts receiving frames
     frame_available, frame = vc.get_frame()
@@ -35,12 +32,12 @@ def init() -> cv2.VideoCapture:
 
     return vc, draw_buffer
 
-
+# To be removed?
 def get_mouse_position() -> Tuple[int, int]:
     p = pyautogui.position()
     return (p.x, p.y)
 
-
+# To be removed?
 def point_inside_canvas(mouse_position: Tuple[int, int], window_rect) -> bool:
     # Top left corner
     x1 = window_rect[0]
@@ -52,7 +49,7 @@ def point_inside_canvas(mouse_position: Tuple[int, int], window_rect) -> bool:
 
     return (x1 <= mouse_position[0] <= x2) and (y1 <= mouse_position[1] <= y2)
 
-
+# To be removed?
 def point_screen_to_image_coordinates(
         point: Tuple[int, int], image_canvas: Tuple[int, int, int, int],
         image_shape: Tuple[int, int]) -> Tuple[int, int]:
@@ -103,12 +100,12 @@ def overlay_images(images: List[np.ndarray]) -> np.ndarray:
 
 
 def draw(pointer_pos: Tuple[int, int], side_len: int,
-         buffer: np.ndarray) -> np.ndarray:
+         buffer: np.ndarray, draw_color: Tuple[int,int,int,int]) -> np.ndarray:
     """
     Draws a square centered at `pointer_pos` and with width/height = `side_length` 
     """
 
-    color = (0, 255, 0, 1)
+    color = draw_color
     start_x = pointer_pos[0] - int(side_len / 2)
     end_x = pointer_pos[0] + int(side_len / 2)
     start_y = pointer_pos[1] - int(side_len / 2)
@@ -129,29 +126,13 @@ def init_drawing_buffer(frame_shape: Tuple[int, int, int]) -> np.ndarray:
     return draw_buffer
 
 
-# Gets called whenever the mouse is clicked
-
-
-def on_click(x, y, button, pressed):
-    global Globals
-
-    if (button == Button.left and pressed):
-        Globals.draw_command = True
-    else:
-        Globals.draw_command = False
-
-
-def clean_up(webcam):
+def clean_up(webcam, win_name):
     print("Exiting")
     webcam.release()
-    cv2.destroyWindow(Globals.WINDOW_NAME)
+    cv2.destroyWindow(win_name)
 
 
-class Globals:
-    draw_command = False
-    WINDOW_NAME = "Results"
-
-
+# To be removed?
 def hsv_threshold(h_lower, h_higher, sat_lower, sat_higher, se_size, frame,
                   prev_frame):
     # Since OpenCV captures images in BGR for some reason
@@ -161,44 +142,46 @@ def hsv_threshold(h_lower, h_higher, sat_lower, sat_higher, se_size, frame,
     # converting from gbr to hsv color space
     # img_HSV = cv2.cvtColor(frame, cv2.COLOR_RGB2HSV)
 
-    if cv2.waitKey(1) & 0xFF == ord('w'):
+    key = cv2.waitKey(1) & 0xFF 
+
+    if key == ord('w'):
         h_higher += 10
         print(f"h_higher increased {h_higher}")
 
-    if cv2.waitKey(1) & 0xFF == ord('e'):
+    if key == ord('e'):
         h_higher -= 10
         print(f"h_higher decreased {h_higher}")
 
-    if cv2.waitKey(1) & 0xFF == ord('s'):
+    if key == ord('s'):
         h_lower += 10
         print(f"h_lower increased {h_lower}")
 
-    if cv2.waitKey(1) & 0xFF == ord('d'):
+    if key == ord('d'):
         h_lower -= 10
         print(f"h_lower decreased {h_lower}")
 
-    if cv2.waitKey(1) & 0xFF == ord('x'):
+    if key == ord('x'):
         se_size += 2
         print(f"se_size increased {se_size}")
 
-    if cv2.waitKey(1) & 0xFF == ord('c'):
+    if key == ord('c'):
         if (se_size > 2):
             se_size -= 2
             print(f"se_size decreased {se_size}")
 
-    if cv2.waitKey(1) & 0xFF == ord('r'):
+    if key == ord('r'):
         sat_higher += 10
         print(f"sat_higher decreased {sat_higher}")
 
-    if cv2.waitKey(1) & 0xFF == ord('t'):
+    if key == ord('t'):
         sat_higher -= 10
         print(f"sat_loer decreased {sat_higher}")
 
-    if cv2.waitKey(1) & 0xFF == ord('f'):
+    if key == ord('f'):
         sat_lower += 10
         print(f"sat_lower decreased {sat_lower}")
 
-    if cv2.waitKey(1) & 0xFF == ord('g'):
+    if key == ord('g'):
         sat_lower -= 10
         print(f"sat_loer decreased {sat_lower}")
 

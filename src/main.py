@@ -1,99 +1,232 @@
-from cv2 import dilate, erode, findContours
-from numpy import unique
-from numpy.core.numeric import convolve, count_nonzero, multiply
+from cv2 import erode, findContours
 from ui import *
-from utils import clean_up, get_hand_bbs, get_mouse_position, init, init_drawing_buffer, point_screen_to_image_coordinates, hsv_threshold
-from pynput.mouse import Listener
-from utils import overlay_images, draw, Globals, on_click
-from time import perf_counter, time
+from utils import (
+    clean_up,
+    get_hand_bbs,
+    init,
+)
+from utils import overlay_images, draw
+from time import time
 
 from skimage.morphology import skeletonize
-from skimage.draw import rectangle_perimeter, ellipse, disk, circle_perimeter, ellipse_perimeter
+from skimage.draw import ellipse_perimeter
+
+
 import mediapipe as mp
-from scipy.signal import convolve2d
 
 mp_hands = mp.solutions.hands
 
 
-def finger_detection_options(bitwise_and_or, do_skeletonize, do_threshold):
+def finger_detection_views(view):
     key = cv2.waitKey(1) & 0xFF
-    if key == ord('w'):
-        bitwise_and_or = not bitwise_and_or
-        print(f'bitwise_and_or toggled {bitwise_and_or}')
-    elif key == ord('s'):
-        do_skeletonize = not do_skeletonize
-        print(f'do_skeletonize toggled {do_skeletonize}')
-    elif key == ord('x'):
-        do_threshold = not do_threshold
-        print(f'do_threshold toggled {do_threshold}')
-
-    return bitwise_and_or, do_skeletonize, do_threshold
+    for i in range(5):
+        if key == ord(str(i)):
+            print(f"Mode set to {i}")
+            return i
+    return view
 
 
 def thresholdHandYCbCr(image):
+
     image = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+    image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV_FULL)
+
     image[:, :, 0] = 0
     image = cv2.medianBlur(image, 15)
-    new_frame1 = np.ones(image.shape[:2], dtype=np.uint8)
-    #new_frame2 = np.ones(image.shape[:2], dtype=np.uint8)
-    window_size = 20
-    center_x = int(image.shape[0] / 2)
-    center_y = int(image.shape[1] / 2)
-    skin_cr = image[center_x - window_size:center_x + window_size, center_y - window_size:center_y + window_size, 1]
-    # skin_cb = image[center_x - window_size:center_x + window_size, center_y - window_size:center_y + window_size, 2]
-    # skin_cb = np.mean(skin_cb)
+
+    image_hsv[:, :, 1:3] = 0
+    image_hsv = cv2.medianBlur(image_hsv, 15)
+
+    window_size = 50
+    center_x = image.shape[0] // 2
+    center_y = image.shape[1] // 2
+
+    skin_cr = image[
+        center_x - window_size : center_x + window_size,
+        center_y - window_size : center_y + window_size,
+        1,
+    ]
+    skin_hsv = image_hsv[
+        center_x - window_size : center_x + window_size,
+        center_y - window_size : center_y + window_size,
+    ]
+
     skin_cr = np.mean(skin_cr)
-    #cr threshholding
-    new_frame1[np.where(image[:, :, 1] > (skin_cr + 7))] = 0
-    new_frame1[np.where(image[:, :, 1] < (skin_cr - 7))] = 0
-    new_frame1[np.where(new_frame1[:, :] == 1)] = 255
-    #cb threshholding
-    # new_frame2[np.where(image[:, :, 2] > (skin_cb + 7))] = 0
-    # new_frame2[np.where(image[:, :, 2] < (skin_cb - 7))] = 0
-    # new_frame2[np.where(new_frame2[:, :] == 1)] = 255
-    # new_frame[np.where(new_frame1[:, :] == new_frame2[:, :])] = 255
-    # new_frame[np.where(image[:, :, 1] > skin_cr - 20 and image[:, :, 1] < skin_cr + 20)] = 255
-    # new_frame[np.where(image[:,:, 1] < 120)] = 255
-    new_frame = 255 - new_frame1
-    return new_frame
+    skin_hsv = np.mean(skin_hsv)
+
+    delta_cr = 10
+    delta_hsv = 50
+
+    skin_cr_threshold = cv2.inRange(
+        image[:, :, 1], skin_cr - delta_cr, skin_cr + delta_cr
+    )
+    skin_hsv_threshold = cv2.inRange(
+        image_hsv, skin_hsv - delta_hsv, skin_hsv + delta_hsv
+    )
+
+    # return cv2.bitwise_or(skin_cr_threshold,skin_hsv_threshold)
+    return skin_cr_threshold
+
+
+def do_action(
+    num_fingers, intersection_positions, xmin, ymin, draw_buffer, image_stages
+):
+
+    # Protip: WILL kaboom if we add more stages
+    [thresholded, skeleton, anded, ored] = image_stages
+    draw_command, draw_color, pointer_pos = False, (0, 0, 0, 0), None
+
+    # Get the highest white pixel
+    # Should correspons to the raised finger
+    if num_fingers == 1 and len(intersection_positions) == 1:
+
+        finger_tip = np.argmin(np.where(skeleton == 255)[1])
+
+        draw_command = True
+        pointer_pos = (
+            xmin + intersection_positions[0][0],
+            ymin + finger_tip,
+        )
+        draw_color = (0, 255, 0, 1)
+
+    # Try to get the middle between the 2 raised fingers
+    elif num_fingers == 2 and len(intersection_positions) == 2:
+
+        draw_command = True
+        white_positions_x = (
+            intersection_positions[0][0] + intersection_positions[1][0]
+        ) // 2
+        white_positions_y = (
+            intersection_positions[0][1] + intersection_positions[1][1]
+        ) // 2
+        pointer_pos = (
+            xmin + white_positions_x,
+            ymin + white_positions_y,
+        )
+        draw_color = (0, 0, 255, 1)
+
+    # Clear buffer
+    elif num_fingers == 5:
+        draw_buffer[:, :] = (0, 0, 0, 0)
+
+    return draw_command, draw_color, pointer_pos
+
+
+def get_num_fingers(
+    frame, xmin, ymin, xmax, ymax, num_fingers_list, num_fingers_window
+):
+
+    hand_erosion_se_size = 5
+
+    # Threshold image based on YCbCr
+    # ONLY WORKS WITH BLUE BACKGROUNDS
+    # OFF-WHITE OR ORANGE PERFORM BADLY
+    thresholded = thresholdHandYCbCr(frame[ymin:ymax, xmin:xmax])
+    roi = thresholded
+
+    # Calculate elipse width, height, center_x, and center_y
+    [c, r, x, y] = [
+        int((xmax - xmin) * 0.3),
+        int((ymax - ymin) * 0.3),
+        (xmin + xmax) // 2,
+        (ymin + ymax) // 2,
+    ]
+
+    # # Erode away some of the image to prevent unwanted blobs
+    roi = erode(
+        roi,
+        np.ones((hand_erosion_se_size, hand_erosion_se_size), np.uint8),
+    )
+
+    roi[roi == 255] = 1
+    skeleton = (255 * skeletonize(roi)).astype(np.uint8)
+
+    roi = skeleton
+
+    # Draw an ellipse at that center
+    circle = ellipse_perimeter(y, x, r, c, shape=frame.shape[:2])
+
+    # Create an empty buffer
+    imageCircle = np.zeros(frame.shape[:2], dtype=np.uint8)
+    # Using the defined masks (circle or ellipse), fill the buffer at those places
+    imageCircle[circle] = 255
+
+    # Since the ellipse/circle is defined relative to the whole image
+    # Crop just the place where the ellipse/circle is drawn
+    roi_circle = imageCircle[ymin:ymax, xmin:xmax]
+
+    # And the ellipse/circle to find the intersection with fingers.
+    anded = cv2.bitwise_and(roi, roi_circle)
+    ored = cv2.bitwise_or(roi, roi_circle)
+
+    # Contours describe the intersection points better than pixels
+    # Because an intersection can be made up of more than 1 pixels
+    contours, _ = findContours(
+        anded, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
+    )
+
+    # Reject short branches that are the result of noise
+    min_cnt_len = max(c, r) * 2
+    too_short = []
+    for i, contour in enumerate(contours):
+        if cv2.arcLength(contour, False) < min_cnt_len:
+            too_short.append(i)
+    for element in too_short:
+        np.delete(contours, element)
+
+    # Finger count running average
+    num_fingers_list.append(len(contours))
+    if len(num_fingers_list) > num_fingers_window:
+        num_fingers_list.pop(0)
+
+    intersection_positions = np.argwhere(anded == 255)
+
+    return (
+        int(np.mean(num_fingers_list)),
+        intersection_positions,
+        [thresholded, skeleton, anded, ored],
+    )
 
 
 def main():
-    global Globals  # Holds all global variables
+    win_name = "Virtual Board?"
 
     # Start webcam capture thread, setup window
-    webcam, draw_buffer = init()
+    webcam, draw_buffer = init(win_name)
 
-    # So we can break the main loop
-    # Yes, we can also use `brake`, but having the input checks in a fucntion
-    # seems neater.
     loop = True
 
     # A copy of the previous frame in case the thread hasn't received any new ones
     prev_frame = None
 
     # For finger detection debugging
-    bitwise_and_or, do_skeletonize, do_threshold = False, False, True
-    num_fingers = 0
-    num_fingers_list = [0]
-    num_fingers_window = 120
+    view = 0
+
+    # Running average
+    num_fingers_list = []
+    num_fingers_window = 15
+
+    # The color we draw in
+    # RGBA
 
     print(
-        "\nPress x to toggle YCbCr thresholding (Disables skeletonization and ANDing/ORing)"
-        "\nPress s to toggle skeletonization (Disables ANDing/ORing)"
-        "\nPress w to toggle circle and skeleton ANDing or ORing"
-        "\nA blue background works best"
-        )
+        "\nPress the number keys to view different stages of finger detection"
+        "\nThreshilding, skeletonization, anding, ording, etc..."
+    )
 
-    with Listener(on_click=on_click) as listener, mp_hands.Hands(
-            model_complexity=0,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-            static_image_mode=False,
-            max_num_hands=1) as hands:  # Listens for mouse events
+    with mp_hands.Hands(
+        model_complexity=0,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+        static_image_mode=False,
+        max_num_hands=1,
+    ) as hands:  # Listens for mouse events
         while loop:
             # To calculate FPS
             start_time = time()  # time()
+
+            # Change what's shown inside the hand's bounding box
+            view = finger_detection_views(view)
 
             # Checck if the thread has a new frame
             frame_available, frame = webcam.get_frame()
@@ -105,150 +238,72 @@ def main():
             if not frame_available:
                 frame = prev_frame
 
-            # Get image rect (top left x&y + width and height) in screen space coordinates
-            canvas = cv2.getWindowImageRect(Globals.WINDOW_NAME)
-
-            # Get pointer (mouse for now) position in screenspace coordinates
-            # If your screen is 1920x1080 pixels, your mouse coodinates are in that range.
-            pointer_pos = get_mouse_position()
-
-            # Convert the screenspace coordinates into canvas/image space coordinates
-            # AKA get where the pointer is relative to the top left of the canvas.
-            pointer_pos_image_coordinates = point_screen_to_image_coordinates(
-                pointer_pos, canvas, (frame.shape[0], frame.shape[1]))
+            pointer_pos_image_coordinates = (-1, -1)
+            draw_command = False
+            num_fingers = 0
+            pointer_pos = None
 
             # Get hand(s) bounding box
             # Uses mediapipe's hand detector
             frame, hand_bbs = get_hand_bbs(frame, hands)
 
-            for (xmin, ymin), (xmax, ymax) in hand_bbs:
+            ################################################################################################
 
-                bitwise_and_or, do_skeletonize, do_threshold = finger_detection_options(
-                    bitwise_and_or,
-                    do_skeletonize,
-                    do_threshold,
+            # Looping doesn't really matter for now
+            if len(hand_bbs) == 1:
+
+                (xmin, ymin), (xmax, ymax) = hand_bbs[0]
+
+                # Thresholds, skeletonizes, and intersects the skeleton with an ellipse
+                # Gets you the number of raised fingers and intersection positions
+                # Also returns some intermediary images to help with debugging
+                (num_fingers, intersection_positions, image_stages,) = get_num_fingers(
+                    frame, xmin, ymin, xmax, ymax, num_fingers_list, num_fingers_window
                 )
 
-                hand_erosion_se_size = 7
-                skeleteon_dilation_se_size = 5
-                skeleton_intersection_conv_size = 25
+                # Based on the number of raised fingers and some more data
+                # Either draw or not
+                # If you're drawing, draw with a specific color
+                draw_command, draw_color, pointer_pos = do_action(
+                    num_fingers,
+                    intersection_positions,
+                    xmin,
+                    ymin,
+                    draw_buffer,
+                    image_stages,
+                )
 
-                # Threshold image based on YCbCr
-                # ONLY WORKS WITH BLUE BACKGROUNDS
-                # OFF-WHITE OR ORANGE PERFORM BADLY
-                if (do_threshold):
-                    roi = thresholdHandYCbCr(frame[ymin:ymax, xmin:xmax])
+                # WILL go boom if the image stage (skeleton, thresholded, etc...) is not a 2D array
+                # 1: thresholded, 2: skeleton, 3: anded, 4: ored
+                for i, image_stage in enumerate(image_stages):
+                    if view == i + 1:
+                        frame[ymin:ymax, xmin:xmax] = np.stack(
+                            (image_stage, image_stage, image_stage),
+                            axis=2,
+                        )
 
-                    # Calculate elipse width, height, center_x, and center_y
-                    [c, r, x, y] = [
-                        int((xmax - xmin) * 0.35),
-                        int((ymax - ymin) * 0.35), (xmin + xmax) // 2 + 20,
-                        (ymin + ymax) // 2 + 20
-                    ]
-
-                    # Erode away some of the image to prevent unwanted blobs
-                    roi = erode(
-                        roi,
-                        np.ones((
-                            hand_erosion_se_size,
-                            hand_erosion_se_size,
-                        ), np.uint8))
-                    if (do_skeletonize):
-                        roi[roi == 255] = True
-                        roi = (255 * skeletonize(roi)).astype(np.uint8)
-
-                        # Just an attempt at improving finger intersection tests
-                        # Convolve so we can find the middle of the wrist
-                        # centre_roi = convolve2d(
-                        #     roi,
-                        #     np.full((skeleton_intersection_conv_size,
-                        #             skeleton_intersection_conv_size), 1))
-                        # # The spot with the maximum intersection (and thus maximum value)
-                        # should be the wrist (where all lines sprout from)
-                        # centre_row = np.amax(centre_roi, 0)
-                        # centre_col = np.amax(centre_roi, 1)
-                        # Draw an ellipse at that center
-                        # circle = ellipse_perimeter(
-                        #     y,
-                        #     x,
-                        #     centre_row[0],
-                        #     centre_col[0],
-                        #     shape=frame.shape[:2],
-                        # )
-                        circle = ellipse_perimeter(y,
-                                                   x,
-                                                   r,
-                                                   c,
-                                                   shape=frame.shape[:2])
-
-                        # Create an empty buffer
-                        imageCircle = np.zeros(frame.shape[:2], dtype=np.uint8)
-                        # Using the defined masks (circle or ellipse), fill the buffer at those places
-                        imageCircle[circle] = 255
-
-                        # In case the ellipse/circle is defined relative to the whole image
-                        # Crop just the place where the ellipse/circle is drawn
-                        roi_circle = imageCircle[ymin:ymax, xmin:xmax]
-
-                        # And the ellipse/circle to find the intersection with fingers.
-                        if (bitwise_and_or):
-                            roi = cv2.bitwise_and(roi, roi_circle)
-                        else:
-                            roi = cv2.bitwise_or(roi, roi_circle)
-
-                        # An attempt at getting better intersection estimates
-                        # Trying to merge smaller intersections from the same finger into one blob
-                        roi = dilate(
-                            roi,
-                            np.ones(shape=(
-                                skeleteon_dilation_se_size,
-                                skeleteon_dilation_se_size,
-                            )))
-
-                        # Get the number of contours and thus the number of points detected
-                        # Best case scenario: the number of contours is equal to the number of raised fingers
-                        cont, _ = findContours(roi,
-                                               mode=cv2.RETR_EXTERNAL,
-                                               method=cv2.CHAIN_APPROX_NONE)
-
-                        # Trying to average the number of fingers detected
-                        # -1 since the wrist is counted as a contour
-                        num_contours = len(cont) - 1
-                        num_contours = num_contours if (
-                            num_contours >= 1) else 0
-
-                        num_fingers_list.append(num_contours)
-
-                        if (len(num_fingers_list) > num_fingers_window):
-                            num_fingers_list.pop(0)
-
-                        num_fingers = round(np.mean(num_fingers_list))
-
-                        frame[ymin:ymax, xmin:xmax] = np.stack((roi, roi, roi),
-                                                               axis=2)
-                    else:
-                        frame[ymin:ymax, xmin:xmax] = np.stack((roi, roi, roi),
-                                                               axis=2)
             ################################################################################################
-            pointer_inside = point_inside_canvas(pointer_pos, canvas)
-            if Globals.draw_command and pointer_inside:
-                draw_buffer = draw(pointer_pos_image_coordinates, 10,
-                                   draw_buffer)
 
-            # # Paint the buffer on top of the base webcam image
+            print(draw_command)
+            if draw_command:
+                draw_buffer = draw(
+                    pointer_pos, 10, draw_buffer, draw_color
+                )
+
+            # Paint the buffer on top of the base webcam image
             frame = overlay_images([frame, draw_buffer])
 
             # Draw the image and UI
-            display_ui(frame, pointer_pos, start_time, num_fingers)
+            display_ui(frame, win_name, start_time, num_fingers)
 
             # Copy the frame for later use
             prev_frame = frame
 
             # Check if we want to quit
-            loop = check_selection()
+            loop = check_quit()
 
     # Clean up
-    clean_up(webcam)
+    clean_up(webcam, win_name)
 
 
 if __name__ == "__main__":
