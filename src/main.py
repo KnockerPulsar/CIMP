@@ -1,4 +1,6 @@
-from cv2 import erode, findContours
+from cv2 import distanceTransform, ellipse, erode, findContours, threshold
+from scipy.ndimage.filters import median_filter
+from skimage.color import rgb2gray
 from ui import *
 from utils import (
     clean_up,
@@ -8,12 +10,12 @@ from utils import (
 from utils import overlay_images, draw
 from time import time
 from scipy.ndimage import distance_transform_edt
-from skimage.morphology import skeletonize, closing, erosion
-from skimage.draw import ellipse_perimeter, circle_perimeter, disk
-
+from skimage.morphology import binary, skeletonize, closing, erosion, binary_erosion
+from skimage.draw import ellipse_perimeter, circle_perimeter, disk, line
 import mediapipe as mp
 
 mp_hands = mp.solutions.hands
+
 
 
 def finger_detection_views(view):
@@ -26,14 +28,12 @@ def finger_detection_views(view):
 
 def thresholdHandYCbCr(image):
 
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+    image = cv2.medianBlur(image, 15)
     image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV_FULL)
 
     image[:, :, 0] = 0
-    image = cv2.medianBlur(image, 15)
 
     image_hsv[:, :, 1:3] = 0
-    image_hsv = cv2.medianBlur(image_hsv, 15)
 
     window_size = 20
     center_x = image.shape[0] // 2
@@ -53,7 +53,7 @@ def thresholdHandYCbCr(image):
     skin_hsv = np.mean(skin_hsv)
 
     delta_cr = 10
-    delta_hsv = 50
+    delta_hsv = 20
 
     skin_cr_threshold = cv2.inRange(
         image[:, :, 1], skin_cr - delta_cr, skin_cr + delta_cr
@@ -112,7 +112,7 @@ def do_action(
 
 
 def get_num_fingers(
-    frame, xmin, ymin, xmax, ymax, num_fingers_list, num_fingers_window
+    frame, xmin, ymin, xmax, ymax, num_fingers_list, num_fingers_window, dis_trans_list_i, dis_trans_list_j
 ):
 
     hand_erosion_se_size = 5
@@ -146,22 +146,49 @@ def get_num_fingers(
 
     # TODO: Either use or delete this
     # Test using distance transform
+    dis_trans_window = 10
+
+    
+
     dis_trans = distance_transform_edt(thresholded, return_distances=True)
     palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
-    radius = dis_trans[palm_center_i, palm_center_j]
-    dis_trans = thresholded
-    #is_trans[palm_center_i, palm_center_j] = 255
-    rr, cc = circle_perimeter(palm_center_i, palm_center_j, int(1.6 * radius), shape= dis_trans.shape)
-    #dis_trans[rr, cc] = 255
-    # Circular mask
-    test = disk((palm_center_i, palm_center_j), radius * 1.6, shape= dis_trans.shape)
-    dis_trans[test] = 0
-    dis_trans = erosion(dis_trans, np.ones((5, 5)))
 
+    dis_trans = cv2.Sobel(src=frame[ymin:ymax, xmin:xmax], ddepth=cv2.CV_64F, dx=0, dy=1, ksize=5)
+    dis_trans = rgb2gray(dis_trans)
+    test = closing(test,np.ones((11,11)))
+    dis_trans = test
+    # rr, cc = np.where(dis_trans != 0)
+    # dis_trans = np.copy(thresholded)
+    # dis_trans[rr, cc] = 0
+    # max_dist = 0
+    # max_pos = (-1,-1) 
+    # for i in range(len(rr)):
+    #     dist = (rr[i]-palm_center_i)**2 + (cc[i]-palm_center_j)**2
+    #     if dist > max_dist:
+    #         max_dist = dist
+    #         max_pos = (rr[i],cc[i])
+    # rr, cc = line(palm_center_i, palm_center_j, max_pos[0], max_pos[1])
+    #dis_trans = np.copy(thresholded)
+    # dis_trans = cv2.Sobel(src=thresholded, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=5)
+    # dis_trans[rr, cc] = 255
+    
+            #palm_peak_i, palm_peak_j = np.unravel_index(dis_trans_copy.argmin(), dis_trans.shape)
+    #rr, cc = line(palm_center_i, palm_center_j, palm_peak_i, palm_center_j)
+    # dis_trans_list_i.append(palm_center_i)
+    # dis_trans_list_j.append(palm_center_j)
+    # if len(dis_trans_list_i) > dis_trans_window:
+    #     dis_trans_list_i.remove(dis_trans_list_i[0])
+    # if len(dis_trans_list_j) > dis_trans_window:
+    #     dis_trans_list_j.remove(dis_trans_list_j[0])
+    # center_i = int(np.mean(dis_trans_list_i))
+    # center_j = int(np.mean(dis_trans_list_j))
+    # radius = dis_trans[palm_center_i, palm_center_j]
+    # dis_trans = np.copy(thresholded)
+    
+    circle = ellipse_perimeter(y, x, r, c, shape=dis_trans.shape)
 
-    # Draw an ellipse at that center
-    circle = ellipse_perimeter(y, x, r, c, shape=frame.shape[:2])
-
+    
+    
     # Create an empty buffer
     imageCircle = np.zeros(frame.shape[:2], dtype=np.uint8)
     # Using the defined masks (circle or ellipse), fill the buffer at those places
@@ -206,6 +233,8 @@ def get_num_fingers(
 
 def main():
     win_name = "Virtual Board?"
+    dis_trans_list_i = []
+    dis_trans_list_j = []
 
     # Start webcam capture thread, setup window
     webcam, draw_buffer = init(win_name)
@@ -274,7 +303,7 @@ def main():
                 # Gets you the number of raised fingers and intersection positions
                 # Also returns some intermediary images to help with debugging
                 (num_fingers, intersection_positions, image_stages,) = get_num_fingers(
-                    frame, xmin, ymin, xmax, ymax, num_fingers_list, num_fingers_window
+                    frame, xmin, ymin, xmax, ymax, num_fingers_list, num_fingers_window, dis_trans_list_i, dis_trans_list_j
                 )
 
                 # Based on the number of raised fingers and some more data
