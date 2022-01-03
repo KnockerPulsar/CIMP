@@ -24,6 +24,7 @@ def finger_detection_views(view):
             return i
     return view
 
+
 def thresholdHandYCbCr(image):
 
     image = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
@@ -62,7 +63,9 @@ def thresholdHandYCbCr(image):
         image_hsv, skin_hsv - delta_hsv, skin_hsv + delta_hsv
     )
     se_window = 5
-    skin_cr_threshold = closing(skin_cr_threshold, np.ones((se_window, se_window), np.uint8))
+    skin_cr_threshold = closing(
+        skin_cr_threshold, np.ones((se_window, se_window), np.uint8)
+    )
     # return cv2.bitwise_or(skin_cr_threshold,skin_hsv_threshold)
     return skin_cr_threshold
 
@@ -143,21 +146,21 @@ def get_num_fingers(
 
     roi = skeleton
 
-
     # TODO: Either use or delete this
     # Test using distance transform
     dis_trans = distance_transform_edt(thresholded, return_distances=True)
     palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
     radius = dis_trans[palm_center_i, palm_center_j]
     dis_trans = thresholded
-    #is_trans[palm_center_i, palm_center_j] = 255
-    rr, cc = circle_perimeter(palm_center_i, palm_center_j, int(1.6 * radius), shape= dis_trans.shape)
-    #dis_trans[rr, cc] = 255
+    # is_trans[palm_center_i, palm_center_j] = 255
+    rr, cc = circle_perimeter(
+        palm_center_i, palm_center_j, int(1.6 * radius), shape=dis_trans.shape
+    )
+    # dis_trans[rr, cc] = 255
     # Circular mask
-    test = disk((palm_center_i, palm_center_j), radius * 1.6, shape= dis_trans.shape)
+    test = disk((palm_center_i, palm_center_j), radius * 1.6, shape=dis_trans.shape)
     dis_trans[test] = 0
     dis_trans = erosion(dis_trans, np.ones((5, 5)))
-
 
     # Draw an ellipse at that center
     circle = ellipse_perimeter(y, x, r, c, shape=frame.shape[:2])
@@ -300,11 +303,9 @@ def main():
 
             ################################################################################################
 
-            #print(draw_command)
+            # print(draw_command)
             if draw_command:
-                draw_buffer = draw(
-                    pointer_pos, 10, draw_buffer, draw_color
-                )
+                draw_buffer = draw(pointer_pos, 10, draw_buffer, draw_color)
 
             # Paint the buffer on top of the base webcam image
             frame = overlay_images([frame, draw_buffer])
