@@ -28,17 +28,21 @@ def finger_detection_views(view):
 
 def thresholdHandYCbCr(image):
 
-    image = cv2.medianBlur(image, 15)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
     image_hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV_FULL)
 
     image[:, :, 0] = 0
+    image = cv2.medianBlur(image, 15)
 
     image_hsv[:, :, 1:3] = 0
+    image_hsv = cv2.medianBlur(image_hsv, 15)
 
-    window_size = 20
+    window_size = image.size // 5000
     center_x = image.shape[0] // 2
     center_y = image.shape[1] // 2
 
+    
+ 
     skin_cr = image[
         center_x - window_size : center_x + window_size,
         center_y - window_size : center_y + window_size,
@@ -63,6 +67,7 @@ def thresholdHandYCbCr(image):
     )
     se_window = 5
     skin_cr_threshold = closing(skin_cr_threshold, np.ones((se_window, se_window), np.uint8))
+
     # return cv2.bitwise_or(skin_cr_threshold,skin_hsv_threshold)
     return skin_cr_threshold
 
@@ -153,10 +158,25 @@ def get_num_fingers(
     dis_trans = distance_transform_edt(thresholded, return_distances=True)
     palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
 
-    dis_trans = cv2.Sobel(src=frame[ymin:ymax, xmin:xmax], ddepth=cv2.CV_64F, dx=0, dy=1, ksize=5)
-    dis_trans = rgb2gray(dis_trans)
-    test = closing(test,np.ones((11,11)))
-    dis_trans = test
+    dis_trans_list_i.append(palm_center_i)
+    dis_trans_list_j.append(palm_center_j)
+    if len(dis_trans_list_i) > dis_trans_window:
+        dis_trans_list_i.remove(dis_trans_list_i[0])
+    if len(dis_trans_list_j) > dis_trans_window:
+        dis_trans_list_j.remove(dis_trans_list_j[0])
+    center_i = int(np.mean(dis_trans_list_i))
+    center_j = int(np.mean(dis_trans_list_j))
+    difference_window = 40
+    if center_i >= dis_trans.shape[0] or center_j >= dis_trans.shape[1]:
+        radius = dis_trans[palm_center_i, palm_center_j]
+        test = disk((palm_center_i, palm_center_j), radius * 1.8, shape= dis_trans.shape)
+    else:
+        radius = dis_trans[center_i, center_j]
+        test = disk((center_i, center_j), radius * 1.8, shape= dis_trans.shape)
+    dis_trans = np.copy(thresholded)
+    dis_trans[test] = 0
+    # dis_trans = cv2.Sobel(src=frame[ymin:ymax, xmin:xmax], ddepth=cv2.CV_64F, dx=0, dy=1, ksize=5)
+    # dis_trans = rgb2gray(dis_trans)
     # rr, cc = np.where(dis_trans != 0)
     # dis_trans = np.copy(thresholded)
     # dis_trans[rr, cc] = 0
@@ -168,11 +188,10 @@ def get_num_fingers(
     #         max_dist = dist
     #         max_pos = (rr[i],cc[i])
     # rr, cc = line(palm_center_i, palm_center_j, max_pos[0], max_pos[1])
-    #dis_trans = np.copy(thresholded)
-    # dis_trans = cv2.Sobel(src=thresholded, ddepth=cv2.CV_64F, dx=0, dy=1, ksize=5)
-    # dis_trans[rr, cc] = 255
+    # dis_trans = np.copy(thresholded)
+    # dis_trans[rr, cc] = 0
     
-            #palm_peak_i, palm_peak_j = np.unravel_index(dis_trans_copy.argmin(), dis_trans.shape)
+    #palm_peak_i, palm_peak_j = np.unravel_index(dis_trans_copy.argmin(), dis_trans.shape)
     #rr, cc = line(palm_center_i, palm_center_j, palm_peak_i, palm_center_j)
     # dis_trans_list_i.append(palm_center_i)
     # dis_trans_list_j.append(palm_center_j)
