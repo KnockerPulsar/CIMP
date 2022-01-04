@@ -1,4 +1,4 @@
-from cv2 import distanceTransform, ellipse, erode, findContours, threshold
+from cv2 import distanceTransform, ellipse, erode, findContours, putText, threshold
 from numpy import random
 from numpy.random.mtrand import randint
 from scipy.ndimage.filters import median_filter
@@ -58,6 +58,51 @@ def thresholdHandYCbCr(image):
         center_x - window_size : center_x + window_size,
         center_y - window_size : center_y + window_size,
     ]
+
+    # Detect the colors at the four corners, those colors are very likely to be a background
+    # added by jimmy while I was writing. Jimmy, please explain
+    corner_window = 3
+    top_left_corner = (0, 0)
+    top_right_corner = (0, image.shape[1] - 1)
+    bot_left_corner = (image.shape[0] - 1, 0)
+    bot_right_corner = (image.shape[0] - 1, image.shape[1] - 1)
+
+    bg_clrs = []
+
+    # Get the colors at the four corners using the calculated points & corner window size
+    # One second
+    top_left_clrs = image_hsv[
+        top_left_corner[0] : top_left_corner[0] + corner_window,
+        top_left_corner[1] : top_left_corner[1] + corner_window,
+        0,
+    ]
+    top_right_clrs = image_hsv[
+        top_right_corner[0] : top_right_corner[0] + corner_window,
+        top_right_corner[1] - corner_window : top_right_corner[1],
+        0,
+    ]
+    bot_left_crls = image_hsv[
+        bot_left_corner[0] - corner_window : bot_left_corner[0],
+        bot_left_corner[1] : bot_left_corner[1] + corner_window,
+        0,
+    ]
+    bot_right_crls = image_hsv[
+        bot_right_corner[0] - corner_window : bot_right_corner[0],
+        bot_right_corner[1] - corner_window : bot_right_corner[1],
+        0,
+    ]
+
+    top_left_clrs = np.mean(top_left_clrs)
+    top_right_clrs = np.mean(top_right_clrs)
+    bot_left_crls = np.mean(bot_left_crls)
+    bot_right_crls = np.mean(bot_right_crls)
+
+    test_delta = 5
+
+    bg_clrs.append(np.where(abs(image_hsv - top_left_clrs) <= test_delta))
+    bg_clrs.append(np.where(abs(image_hsv - top_right_clrs) <= test_delta))
+    bg_clrs.append(np.where(abs(image_hsv - bot_left_crls) <= test_delta))
+    bg_clrs.append(np.where(abs(image_hsv - bot_right_crls) <= test_delta))
 
     skin_cr = np.mean(skin_cr)
     skin_hsv = np.mean(skin_hsv)
@@ -231,6 +276,25 @@ def get_num_fingers(
             print(f"wrist + {random.randint(low=0, high=69)}")
             wrist_in_img = True
 
+    # Gamal tried using this to number the contours, but the numbers kept changing, did not stick to a single contour
+    # for i in range(len(contour_centers)):
+    #     img_stages[0] = cv2.putText(
+    #         img_stages[0],
+    #         str(i),
+    #         (int(contour_centers[i][0]), int(contour_centers[i][1])),
+    #         cv2.FONT_HERSHEY_COMPLEX,
+    #         0.5,
+    #         (10, 255, 0),
+    #         1,
+    #     )
+
+    # tried to cancel out the contours below half of the bounding box
+    # if we don't count rotation this is a reasonable way to remove outliers
+    # but the results weren't as expected
+    for index, contour_center in enumerate(contour_centers):
+        if np.mean(contour_centers[index]) > ymax * 0.5:
+            contour_centers.pop(index)
+
     # Reject short branches that are the result of noise
     # min_cnt_len = max(c, r) * 2
     # too_short = []
@@ -254,6 +318,7 @@ def get_num_fingers(
     return (
         int(np.mean(num_fingers_list)),
         img_stages,
+        contour_centers,
     )
 
 
@@ -271,7 +336,7 @@ def main():
     prev_frame = None
 
     # For finger detection debugging
-    view = 5
+    view = 4
 
     # Running average
     num_fingers_list = []
@@ -304,7 +369,8 @@ def main():
             frame = cv2.flip(frame, 1)
 
             pointer_pos_image_coordinates = (-1, -1)
-            draw_command = False
+            draw_command = True
+            contour_centers = []
             num_fingers = 0
 
             # Get hand(s) bounding box
@@ -321,7 +387,7 @@ def main():
                 # Thresholds, skeletonizes, and intersects the skeleton with an ellipse
                 # Gets you the number of raised fingers and intersection positions
                 # Also returns some intermediary images to help with debugging
-                (num_fingers, image_stages,) = get_num_fingers(
+                (num_fingers, image_stages, contour_centers) = get_num_fingers(
                     frame,
                     xmin,
                     ymin,
@@ -363,10 +429,26 @@ def main():
             ################################################################################################
 
             # #print(draw_command)
-            # if draw_command:
-            #     draw_buffer = draw(
-            #         pointer_pos, 10, draw_buffer, draw_color
-            #     )
+            # check for number of fingers raised,
+            # I thought that drawing at contour_centers[0] or [1] would do the job
+            # but apparently the contours are succeptible to noise and keep rotating so 0 and 1 are not ideal
+            # we at some point added a condition to check for len(contour_centers) as well
+            # but that made the window focus on the wrist without the raised index finger for some reason
+            if draw_command and contour_centers:
+                if num_fingers == 1:
+                    xpos = contour_centers[0][0] + xmin
+                    ypos = contour_centers[0][1] + ymin
+                    draw_buffer = draw(
+                        (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
+                    )
+                elif num_fingers == 2:
+                    xpos = contour_centers[1][0] + xmin
+                    ypos = contour_centers[1][1] + ymin
+                    draw_buffer = draw(
+                        (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
+                    )
+                elif num_fingers > 4:
+                    draw_buffer.fill(0)
 
             # Paint the buffer on top of the base webcam image
             frame = overlay_images([frame, draw_buffer])

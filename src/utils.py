@@ -111,7 +111,8 @@ def draw(pointer_pos: Tuple[int, int], side_len: int,
     start_y = pointer_pos[1] - int(side_len / 2)
     end_y = pointer_pos[1] + int(side_len / 2)
 
-    buffer[start_y:end_y, start_x:end_x] = color
+    # buffer[start_y:end_y, start_x:end_x] = color
+    buffer[int(start_y):int(end_y), int(start_x):int(end_x)] = color
     return buffer
 
 
