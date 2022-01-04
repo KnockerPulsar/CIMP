@@ -42,19 +42,87 @@ def thresholdHandYCbCr(image):
     center_y = image.shape[1] // 2
 
     
- 
+    #window showing cr component of YCbCr image
     skin_cr = image[
         center_x - window_size : center_x + window_size,
         center_y - window_size : center_y + window_size,
         1,
     ]
+
+    #window showing hsv components of an image
     skin_hsv = image_hsv[
         center_x - window_size : center_x + window_size,
         center_y - window_size : center_y + window_size,
     ]
 
+
+    #delta = 30 works well with red background
+    delta = 40
+
+    #points around the center point
+    center_x1 = center_x - delta
+    center_x2 = center_x + delta
+    center_y1 = center_y - delta
+    center_y2 = center_y + delta
+
+
+    #windows around the 4 new points, each 1 directional
+    skin_cr_x1 = image[
+        center_x1 - window_size : center_x1 + window_size,
+        center_y - window_size : center_y + window_size,
+        1,
+    ]
+
+    skin_cr_x2 = image[
+        center_x2 - window_size : center_x2 + window_size,
+        center_y - window_size : center_y + window_size,
+        1,
+    ]
+
+    skin_cr_y1 = image[
+        center_x - window_size : center_x + window_size,
+        center_y1 - window_size : center_y1 + window_size,
+        1,
+    ]
+
+    skin_cr_y2 = image[
+        center_x - window_size : center_x + window_size,
+        center_y2 - window_size : center_y2 + window_size,
+        1,
+    ]
+
+    # array to store skin colors to average and thrshold on
+    skin_colors = []
+    
     skin_cr = np.mean(skin_cr)
     skin_hsv = np.mean(skin_hsv)
+
+    # skin_colors.append(skin_cr)
+
+    # average values along x axis in positive direction and -ve direction, whicherver has the least difference take it
+    average_along_negative_x = np.mean(skin_cr_x1)
+    average_along_positive_x = np.mean(skin_cr_x2)
+    average_along_negative_y = np.mean(skin_cr_y1)
+    average_along_positive_y = np.mean(skin_cr_y2)
+
+    # skin difference = 5 works well with red background
+    skin_difference = 5
+    
+    if abs(skin_cr - average_along_negative_x) < skin_difference :
+        skin_colors.append(average_along_negative_x)
+        
+    if abs(skin_cr - average_along_positive_x) < skin_difference :
+        skin_colors.append(average_along_positive_x)
+
+    if abs(skin_cr - average_along_negative_y) < skin_difference :
+        skin_colors.append(average_along_negative_y)
+
+    if abs(skin_cr - average_along_positive_y) < skin_difference :
+        skin_colors.append(average_along_positive_y)
+
+    skin_cr = np.mean(skin_colors)
+
+
 
     delta_cr = 10
     delta_hsv = 20
@@ -65,6 +133,7 @@ def thresholdHandYCbCr(image):
     skin_hsv_threshold = cv2.inRange(
         image_hsv, skin_hsv - delta_hsv, skin_hsv + delta_hsv
     )
+
     se_window = 5
     skin_cr_threshold = closing(skin_cr_threshold, np.ones((se_window, se_window), np.uint8))
 

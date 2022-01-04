@@ -1,0 +1,4 @@
+Background subtraction
+dynamic thresholding
+HSV and somehow with YCbCr
+
