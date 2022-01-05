@@ -2,8 +2,13 @@
 Stands for **CMP Image Markup Project**. Our aim is to create a tool that you can use as a virtual board where you can draw only using your hand.
 
 # How To Run
-Ideally the program should be run using mediapipe, there is a global variable at the beginning of the code called USE_MEDIAPIPE which should be set to true, and USE_BACK_SUB should be set to False. If done son, run the application and finger tracking should be done automatically.
-If USE_BACK_Sub is set to true, put your hand in the blue box then press and hold E until the blue box is shaking, it is now tracking your hand
+There are 2 main tracking methods:
+*   Mediapipe: to use this, set `USE_MEDIAPIPE` at the top of the code to `True`. This uses a CNN to track your hand automatically.
+*   Mean shift: to use this, set `USE_MEDIAPIPE` at the top of the code to `False`. To start tracking, place your hand inside the blue rectangle, then hold `e` until you notice it shaking slightly. It is now tracking your hand. It might ocassionally stick to your face, you can try and slowly pull it off. You toggle background subtraction on and off using the `USE_BACK_SUB` global variable. This might achieve better performance depending on your background. Note that using background subtraction with mediapipe will not do anything.
+  
+There are 2 main finger detection modes:
+* Distance transform + contours: To use this, set `USE_MORPH_FINGERS` to `False`. This method skins your hand depending on the middle of the tracking box and counts the number of blobs using contours.
+* Morphological + blob detection : To use this, set `USE_MORPH_FINGERS` to `True`. This method does a few ersion and dilation operations and then uses a simple blob detector to count the number of fingers. This usually performs better than the other method.
 
 # References
 * https://docs.opencv.org/3.4/da/d7f tutorial_back_projection.html
