@@ -1,4 +1,13 @@
-from cv2 import distanceTransform, ellipse, erode, findContours, putText, threshold
+from cv2 import (
+    bitwise_not,
+    dilate,
+    distanceTransform,
+    ellipse,
+    erode,
+    findContours,
+    putText,
+    threshold,
+)
 from numpy import random
 from numpy.random.mtrand import randint
 from scipy.ndimage.filters import median_filter
@@ -13,7 +22,14 @@ from utils import (
 from utils import overlay_images, draw
 from time import time
 from scipy.ndimage import distance_transform_edt
-from skimage.morphology import binary, skeletonize, opening, closing, erosion, binary_erosion
+from skimage.morphology import (
+    binary,
+    skeletonize,
+    opening,
+    closing,
+    erosion,
+    binary_erosion,
+)
 from skimage.draw import ellipse_perimeter, circle_perimeter, disk, line
 import mediapipe as mp
 
@@ -60,7 +76,6 @@ def thresholdHandYCbCr(image):
     ]
 
     # Detect the colors at the four corners, those colors are very likely to be a background
-    # added by jimmy while I was writing. Jimmy, please explain
     corner_window = 3
     top_left_corner = (0, 0)
     top_right_corner = (0, image.shape[1] - 1)
@@ -125,6 +140,9 @@ def thresholdHandYCbCr(image):
 
     # return cv2.bitwise_or(skin_cr_threshold,skin_hsv_threshold)
     return skin_cr_threshold
+
+
+#
 
 
 def do_action(
@@ -193,132 +211,192 @@ def get_num_fingers(
     thresholded = thresholdHandYCbCr(frame[ymin:ymax, xmin:xmax])
     img_stages.append(thresholded)
 
-    # Erode away some of the image to prevent unwanted blobs
-    roi = erode(
-        thresholded,
-        np.ones((hand_erosion_se_size, hand_erosion_se_size), np.uint8),
+    erosion_width = (xmax - xmin) // 8
+    erosion_height = (ymax - ymin) // 8
+    roi = erode(thresholded, np.ones((erosion_width, erosion_height), np.uint8))
+    roi = dilate(
+        roi,
+        cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, [int(erosion_width * 2), int(erosion_height)]
+        ),
     )
 
-    # Test using distance transform
-    dis_trans_window = 5
+    img_stages[1] = img_stages[1] - roi
+    # eroding again to get rid of thin outlies at the perimeter of the palm
+    # this erosion size would be better if variable
+    img_stages[1] = erode(img_stages[1], np.ones((7, 7), np.uint8), iterations=1)
+    img_stages[1] = median_filter(img_stages[1], (5, 5))
+    img_stages.append(roi)
+    num_fingers_list = [0]
 
-    se_size = thresholded.size // 5000
-    test1 = opening(thresholded, np.ones((se_size, se_size)))
-
-    dis_trans = distance_transform_edt(test1, return_distances=True)
-    img_stages.append(dis_trans)
-
-
-    palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
-    dis_trans_list_i.append(palm_center_i)
-    dis_trans_list_j.append(palm_center_j)
-    if len(dis_trans_list_i) > dis_trans_window:
-        dis_trans_list_i.remove(dis_trans_list_i[0])
-    if len(dis_trans_list_j) > dis_trans_window:
-        dis_trans_list_j.remove(dis_trans_list_j[0])
-
-    center_i = int(np.mean(dis_trans_list_i))
-    center_j = int(np.mean(dis_trans_list_j))
-
-    difference_window = 40
-    if center_i >= dis_trans.shape[0] or center_j >= dis_trans.shape[1]:
-        radius = dis_trans[palm_center_i, palm_center_j]
-        test = disk((palm_center_i, palm_center_j), radius * 1.8, shape=dis_trans.shape)
-    else:
-        radius = dis_trans[center_i, center_j]
-        test = disk((center_i, center_j), radius * 1.8, shape=dis_trans.shape)
-
-    dis_trans = np.copy(thresholded)
-
-    dis_trans[test] = 0
-
-    # Contours describe the intersection points better than pixels
-    # Because an intersection can be made up of more than 1 pixels
     contours, _ = findContours(
-        dis_trans, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
+        img_stages[1], mode=cv2.RETR_LIST, method=cv2.CHAIN_APPROX_SIMPLE
     )
 
-    # Get the center of each contour, remove the outlier
-    # if there's more than one contour
-    # We will assume that the orientation is always vertical
-    # given that, we will filter contours below a certain threshold to make decrease number of outliers
+    # img_stages.append(img_stages[0])
     contour_centers = []
     if len(contours) > 1:
-        for index, cont in enumerate(contours):
-            if np.mean(contours[index]) < palm_center_j:
-                contour_centers.append(
-                    (np.mean(int(cont[:, :, 0][0])), np.mean(int(cont[:, :, 1][0])))
-                )
+        for cont in contours:
+            contour_centers.append(
+                (np.mean(int(cont[:, :, 0][0])), np.mean(int(cont[:, :, 1][0])))
+            )
+            cv2.drawContours(img_stages[0], contours, -1, (255, 0, 0), 2)
 
-    for contour_center in contour_centers:
-        l = line(center_i, center_j, int(contour_center[1]), int(contour_center[0]))
-        print(contour_center[0], contour_center[1])
-        try:
-            dis_trans[l] = 255
-        except:
-            print('it happened again')
-
-    img_stages.append(dis_trans)
-
-    wrist_in_img = False
-    if len(contour_centers) > 1:
-        min_sqr_dist_for_wrist = np.power((ymax - ymin) * 0.7, 2) + np.power(
-            (xmax - xmin) * 0.7, 2
-        )
-
-        k_means = KMeans(init="k-means++", n_clusters=2, n_init=10)
-        k_means.fit(contour_centers)
-
-        cluster1 = k_means.cluster_centers_[0]
-        cluster2 = k_means.cluster_centers_[1]
-
-        two_cluster_sqr_dist = np.power(cluster1[0] - cluster2[0], 2) + np.power(
-            cluster1[1] - cluster2[1], 2
-        )
-        if two_cluster_sqr_dist > min_sqr_dist_for_wrist:
-            # index = np.where(k_means.labels_ == 0)[0][0]
-            # wrist = contour_centers[index]
-            # x_img,y_img = int(wrist[0])+xmin, int(wrist[1])+ymin
-            print(f"wrist + {random.randint(low=0, high=69)}")
-            wrist_in_img = True
-
-    # Gamal tried using this to number the contours, but the numbers kept changing, did not stick to a single contour
     for i in range(len(contour_centers)):
         img_stages[0] = cv2.putText(
             img_stages[0],
             str(i),
             (int(contour_centers[i][0]), int(contour_centers[i][1])),
             cv2.FONT_HERSHEY_COMPLEX,
-            0.5,
-            (135, 50, 168),
-            2,
+            0.75,
+            (10, 55, 255),
+            3,
         )
 
-    # Reject short branches that are the result of noise
-    # min_cnt_len = max(c, r) * 2
-    # too_short = []
-    # for i, contour in enumerate(contours):
-    #     if cv2.arcLength(contour, False) < min_cnt_len:
-    #         too_short.append(i)
-    # for element in too_short:
-    #     np.delete(contours, element)
-
-    # The number of blobs = number of fingers + wrist blob
-    num_blobs = len(contours)
-
-    if wrist_in_img:
-        num_blobs -= 1
-
-    # Finger count running average
-    num_fingers_list.append(num_blobs)
-    if len(num_fingers_list) > num_fingers_window:
-        num_fingers_list.pop(0)
-
+    params = cv2.SimpleBlobDetector_Params()
+    params.filterByInertia = False
+    params.filterByConvexity = False
+    params.filterByCircularity = True
+    params.minCircularity = 0.1
+    detector = cv2.SimpleBlobDetector(params)
+    keypoints = detector.detect(img_stages[0])
+    img_stages[0] = cv2.drawKeypoints(
+        img_stages[1],
+        keypoints,
+        np.array([]),
+        (0, 0, 255),
+        cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS,
+    )
     return (
         int(np.mean(num_fingers_list)),
         img_stages,
-        contour_centers,
+        [],
     )
+
+    # # Erode away some of the image to prevent unwanted blobs
+    # roi = erode(
+    #     thresholded,
+    #     np.ones((hand_erosion_se_size, hand_erosion_se_size), np.uint8),
+    # )
+
+    # # Test using distance transform
+    # dis_trans_window = 5
+
+    # se_size = thresholded.size // 5000
+    # test1 = opening(thresholded, np.ones((se_size, se_size)))
+
+    # dis_trans = distance_transform_edt(test1, return_distances=True)
+    # img_stages.append(dis_trans)
+
+    # palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
+    # dis_trans_list_i.append(palm_center_i)
+    # dis_trans_list_j.append(palm_center_j)
+    # if len(dis_trans_list_i) > dis_trans_window:
+    #     dis_trans_list_i.remove(dis_trans_list_i[0])
+    # if len(dis_trans_list_j) > dis_trans_window:
+    #     dis_trans_list_j.remove(dis_trans_list_j[0])
+
+    # center_i = int(np.mean(dis_trans_list_i))
+    # center_j = int(np.mean(dis_trans_list_j))
+
+    # difference_window = 40
+    # if center_i >= dis_trans.shape[0] or center_j >= dis_trans.shape[1]:
+    #     radius = dis_trans[palm_center_i, palm_center_j]
+    #     test = disk((palm_center_i, palm_center_j), radius * 1.8, shape=dis_trans.shape)
+    # else:
+    #     radius = dis_trans[center_i, center_j]
+    #     test = disk((center_i, center_j), radius * 1.8, shape=dis_trans.shape)
+
+    # dis_trans = np.copy(thresholded)
+
+    # dis_trans[test] = 0
+
+    # # Contours describe the intersection points better than pixels
+    # # Because an intersection can be made up of more than 1 pixels
+    # contours, _ = findContours(
+    #     dis_trans, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
+    # )
+
+    # # Get the center of each contour, remove the outlier
+    # # if there's more than one contour
+    # # We will assume that the orientation is always vertical
+    # # given that, we will filter contours below a certain threshold to make decrease number of outliers
+    # contour_centers = []
+    # if len(contours) > 1:
+    #     for index, cont in enumerate(contours):
+    #         if np.mean(contours[index]) < palm_center_j:
+    #             contour_centers.append(
+    #                 (np.mean(int(cont[:, :, 0][0])), np.mean(int(cont[:, :, 1][0])))
+    #             )
+
+    # for contour_center in contour_centers:
+    #     l = line(center_i, center_j, int(contour_center[1]), int(contour_center[0]))
+    #     try:
+    #         dis_trans[l] = 255
+    #     except:
+    #         print("it happened again")
+
+    # img_stages.append(dis_trans)
+
+    # wrist_in_img = False
+    # if len(contour_centers) > 1:
+    #     min_sqr_dist_for_wrist = np.power((ymax - ymin) * 0.7, 2) + np.power(
+    #         (xmax - xmin) * 0.7, 2
+    #     )
+
+    #     k_means = KMeans(init="k-means++", n_clusters=2, n_init=10)
+    #     k_means.fit(contour_centers)
+
+    #     cluster1 = k_means.cluster_centers_[0]
+    #     cluster2 = k_means.cluster_centers_[1]
+
+    #     two_cluster_sqr_dist = np.power(cluster1[0] - cluster2[0], 2) + np.power(
+    #         cluster1[1] - cluster2[1], 2
+    #     )
+    #     if two_cluster_sqr_dist > min_sqr_dist_for_wrist:
+    #         # index = np.where(k_means.labels_ == 0)[0][0]
+    #         # wrist = contour_centers[index]
+    #         # x_img,y_img = int(wrist[0])+xmin, int(wrist[1])+ymin
+    #         print(f"wrist + {random.randint(low=0, high=69)}")
+    #         wrist_in_img = True
+
+    # # Gamal tried using this to number the contours, but the numbers kept changing, did not stick to a single contour
+    # for i in range(len(contour_centers)):
+    #     img_stages[0] = cv2.putText(
+    #         img_stages[0],
+    #         str(i),
+    #         (int(contour_centers[i][0]), int(contour_centers[i][1])),
+    #         cv2.FONT_HERSHEY_COMPLEX,
+    #         0.75,
+    #         (10, 55, 255),
+    #         3,
+    #     )
+
+    # # Reject short branches that are the result of noise
+    # # min_cnt_len = max(c, r) * 2
+    # # too_short = []
+    # # for i, contour in enumerate(contours):
+    # #     if cv2.arcLength(contour, False) < min_cnt_len:
+    # #         too_short.append(i)
+    # # for element in too_short:
+    # #     np.delete(contours, element)
+
+    # # The number of blobs = number of fingers + wrist blob
+    # num_blobs = len(contours)
+
+    # if wrist_in_img:
+    #     num_blobs -= 1
+
+    # # Finger count running average
+    # num_fingers_list.append(num_blobs)
+    # if len(num_fingers_list) > num_fingers_window:
+    #     num_fingers_list.pop(0)
+
+    # return (
+    #     int(np.mean(num_fingers_list)),
+    #     img_stages,
+    #     contour_centers,
+    # )
 
 
 def main():
@@ -435,21 +513,21 @@ def main():
             # but that made the window focus on the wrist without the raised index finger for some reason
 
             # comment this for now to work on stabilizing the contours
-            # if draw_command and contour_centers:
-            #     if num_fingers == 1 and len(contour_centers) == 1:
-            #         xpos = contour_centers[0][0] + xmin
-            #         ypos = contour_centers[0][1] + ymin
-            #         draw_buffer = draw(
-            #             (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
-            #         )
-            #     elif num_fingers == 2 and len(contour_centers) == 2:
-            #         xpos = contour_centers[1][0] + xmin
-            #         ypos = contour_centers[1][1] + ymin
-            #         draw_buffer = draw(
-            #             (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
-            #         )
-            #     elif num_fingers > 4:
-            #         draw_buffer.fill(0)
+            if draw_command and contour_centers:
+                if num_fingers == 1 and len(contour_centers) == 1:
+                    xpos = contour_centers[0][0] + xmin
+                    ypos = contour_centers[0][1] + ymin
+                    draw_buffer = draw(
+                        (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
+                    )
+                elif num_fingers == 2 and len(contour_centers) == 2:
+                    xpos = contour_centers[1][0] + xmin
+                    ypos = contour_centers[1][1] + ymin
+                    draw_buffer = draw(
+                        (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
+                    )
+                elif num_fingers > 4:
+                    draw_buffer.fill(0)
 
             # Paint the buffer on top of the base webcam image
             frame = overlay_images([frame, draw_buffer])
