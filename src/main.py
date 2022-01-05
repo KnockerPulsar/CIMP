@@ -36,8 +36,11 @@ USE_MEDIAPIPE = False
 mp_hands = mp.solutions.hands
 
 
+key = None
+roi_captured = False
+roi_hist = None
+
 def finger_detection_views(view, img_stages):
-    key = cv2.waitKey(1) & 0xFF
     for i in range(1, len(img_stages) + 1):
         if key == ord(str(i)):
             print(f"Mode set to {i}")
@@ -140,8 +143,6 @@ def thresholdHandYCbCr(image):
     return skin_cr_threshold
 
 
-#
-
 
 def do_action(
     num_fingers, intersection_positions, xmin, ymin, draw_buffer, image_stages
@@ -209,68 +210,7 @@ def get_num_fingers(
     thresholded = thresholdHandYCbCr(frame[ymin:ymax, xmin:xmax])
     img_stages.append(thresholded)
 
-    # erosion_width = (xmax - xmin) // 8
-    # erosion_height = (ymax - ymin) // 8
-    # roi = erode(thresholded, np.ones((erosion_width, erosion_height), np.uint8))
-    # roi = dilate(
-    #     roi,
-    #     cv2.getStructuringElement(
-    #         cv2.MORPH_ELLIPSE, [int(erosion_width * 2), int(erosion_height)]
-    #     ),
-    # )
-
-    # img_stages[1] = img_stages[1] - roi
-    # # eroding again to get rid of thin outlies at the perimeter of the palm
-    # # this erosion size would be better if variable
-    # img_stages[1] = erode(img_stages[1], np.ones((7, 7), np.uint8), iterations=1)
-    # img_stages[1] = median_filter(img_stages[1], (5, 5))
-    # img_stages.append(roi)
-    # num_fingers_list = [0]
-
-    # contours, _ = findContours(
-    #     img_stages[1], mode=cv2.RETR_LIST, method=cv2.CHAIN_APPROX_SIMPLE
-    # )
-
-    # # img_stages.append(img_stages[0])
-    # contour_centers = []
-    # if len(contours) > 1:
-    #     for cont in contours:
-    #         contour_centers.append(
-    #             (np.mean(int(cont[:, :, 0][0])), np.mean(int(cont[:, :, 1][0])))
-    #         )
-    #         cv2.drawContours(img_stages[0], contours, -1, (255, 0, 0), 2)
-
-    # for i in range(len(contour_centers)):
-    #     img_stages[0] = cv2.putText(
-    #         img_stages[0],
-    #         str(i),
-    #         (int(contour_centers[i][0]), int(contour_centers[i][1])),
-    #         cv2.FONT_HERSHEY_COMPLEX,
-    #         0.75,
-    #         (10, 55, 255),
-    #         3,
-    #     )
-
-    # params = cv2.SimpleBlobDetector_Params()
-    # params.filterByInertia = False
-    # params.filterByConvexity = False
-    # params.filterByCircularity = True
-    # params.minCircularity = 0.1
-    # detector = cv2.SimpleBlobDetector(params)
-    # keypoints = detector.detect(img_stages[1])
-    # img_stages[0] = cv2.drawKeypoints(
-    #     img_stages[1],
-    #     keypoints,
-    #     np.array([]),
-    #     (0, 0, 255),
-    #     cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS,
-    # )
-    # return (
-    #     int(np.mean(num_fingers_list)),
-    #     img_stages,
-    #     [],
-    # )
-
+   
     # Erode away some of the image to prevent unwanted blobs
     roi = erode(
         thresholded,
@@ -370,15 +310,6 @@ def get_num_fingers(
             3,
         )
 
-    # Reject short branches that are the result of noise
-    # min_cnt_len = max(c, r) * 2
-    # too_short = []
-    # for i, contour in enumerate(contours):
-    #     if cv2.arcLength(contour, False) < min_cnt_len:
-    #         too_short.append(i)
-    # for element in too_short:
-    #     np.delete(contours, element)
-
     # The number of blobs = number of fingers + wrist blob
     num_blobs = len(contours)
 
@@ -400,9 +331,7 @@ def get_num_fingers(
 def meanShiftHandTracking(
     backsub,
     frame,
-    roi_captured,
     channels,
-    roi_hist,
     ranges,
     track_window,
     term_crit,
@@ -412,6 +341,8 @@ def meanShiftHandTracking(
     h,
     sizes,
 ):
+    global key,roi_captured, roi_hist
+
     fg_mask = backsub.apply(frame)
     fg = cv2.bitwise_and(frame, frame, mask=fg_mask)
 
@@ -428,20 +359,12 @@ def meanShiftHandTracking(
 
         ret, track_window = cv2.meanShift(backproj, track_window, term_crit)
 
-        # # Cam shift
-        # # pts = cv2.boxPoints(ret)
-        # # pts = np.int0(pts)
-        # # frame = cv2.polylines(frame, [pts], True, 255, 2)
-        # # if(pts.min() == pts.max() == 0):
-        # #     roi_captured = False
-
         # Mean shift
         x, y, w, h = track_window
         frame = cv2.rectangle(fg, (x, y), (x + w, y + h), 255, 2)
 
     else:
         # Capture a ROI to use as a search target later on
-        key = cv2.waitKey(1) & 0xFF
         if key == ord("e"):
             roi = hsv_fg[y : y + h, x : x + w]
 
@@ -464,10 +387,13 @@ def meanShiftHandTracking(
 
         cv2.rectangle(frame, (x, y), (x + w, y + h), 255, 2)
 
-    return (x, y, w, h)
+    return frame, (x, y, w, h)
 
 
 def main():
+    global key
+
+
     win_name = "Virtual Board?"
     dis_trans_list_i = []
     dis_trans_list_j = []
@@ -532,6 +458,10 @@ def main():
         # To calculate FPS
         start_time = time()  # time()
 
+        key = cv2.waitKey(1) & 0xFF
+        print(key)
+
+
         # Checck if the thread has a new frame
         frame_available, frame = webcam.get_frame()
 
@@ -542,12 +472,10 @@ def main():
         # flip frame
         frame = cv2.flip(frame, 1)
 
-        x, y, w, h = meanShiftHandTracking(
+        frame ,(x, y, w, h) = meanShiftHandTracking(
             backsub,
             frame,
-            roi_captured,
             channels,
-            roi_hist,
             ranges,
             track_window,
             term_crit,
@@ -566,7 +494,7 @@ def main():
         # Thresholds, skeletonizes, and intersects the skeleton with an ellipse
         # Gets you the number of raised fingers and intersection positions
         # Also returns some intermediary images to help with debugging
-        (num_fingers, image_stages, contour_centers) = get_num_fingers(
+        (num_fingers, image_stages, finger_centers) = get_num_fingers(
             frame,
             xmin,
             ymin,
@@ -586,15 +514,13 @@ def main():
         # If you're drawing, draw with a specific color
         # draw_command, draw_color, pointer_pos = do_action(
         #     num_fingers,
-        #     ,
+        #     finger_centers,
         #     xmin,
         #     ymin,
         #     draw_buffer,
         #     image_stages,
         # )
 
-        # WILL go boom if the image stage (skeleton, thresholded, etc...) is not a 2D array
-        # 1: thresholded, 2: skeleton, 3: anded, 4: ored
         for i, image_stage in enumerate(image_stages):
             if view == i + 1:
                 if len(image_stage.shape) == 2:
@@ -615,14 +541,14 @@ def main():
         # but that made the window focus on the wrist without the raised index finger for some reason
 
         # comment this for now to work on stabilizing the contours
-        if draw_command and contour_centers:
-            if num_fingers == 1 and len(contour_centers) == 1:
-                xpos = contour_centers[0][0] + xmin
-                ypos = contour_centers[0][1] + ymin
+        if draw_command and finger_centers:
+            if num_fingers == 1 and len(finger_centers) == 1:
+                xpos = finger_centers[0][0] + xmin
+                ypos = finger_centers[0][1] + ymin
                 draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
-            elif num_fingers == 2 and len(contour_centers) == 2:
-                xpos = contour_centers[1][0] + xmin
-                ypos = contour_centers[1][1] + ymin
+            elif num_fingers == 2 and len(finger_centers) == 2:
+                xpos = finger_centers[1][0] + xmin
+                ypos = finger_centers[1][1] + ymin
                 draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
             elif num_fingers > 4:
                 draw_buffer.fill(0)
