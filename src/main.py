@@ -56,50 +56,52 @@ def thresholdHandYCbCr(image):
     ]
 
     # Detect the colors at the four corners, those colors are very likely to be a background
-    # corner_window = 5
-    # top_left_corner = (0, 0)
-    # top__right_corner = (0, image.shape[1] - 1)
-    # bot_left_corner = (image.shape[0] - 1, 0)
-    # bot_right_corner = (image.shape[0] - 1, image.shape[1] - 1)
+    corner_window = 3
+    top_left_corner = (0, 0)
+    top_right_corner = (0, image.shape[1] - 1)
+    bot_left_corner = (image.shape[0] - 1, 0)
+    bot_right_corner = (image.shape[0] - 1, image.shape[1] - 1)
 
-    # bg_clrs = []
+    bg_clrs = []
 
     # Get the colors at the four corners using the calculated points & corner window size
     # One second
-    # top_left_clrs = image_hsv[
-    #     top_left_corner[0] : top_left_corner[0] + corner_window,
-    #     top_left_corner[1] : top_left_corner[1] + corner_window,
-    #     0
-    # ]
-    # top_right_clrs = image_hsv[
-    #     top__right_corner[0] : top__right_corner[0] + corner_window,
-    #     top__right_corner[1] - corner_window : top__right_corner[1],
-    #     0
-    # ]
-    # bot_left_crls = image_hsv[
-    #     bot_left_corner[0] - corner_window : bot_left_corner[0],
-    #     bot_left_corner[1] : bot_left_corner[1] + corner_window,
-    #     0
-    # ]
-    # bot_right_crls = image_hsv[
-    #     bot_right_corner[0] - corner_window : bot_right_corner[0],
-    #     bot_right_corner[1] - corner_window : bot_right_corner[1],
-    #     0
-    # ]
+    top_left_clrs = image_hsv[
+        top_left_corner[0] : top_left_corner[0] + corner_window,
+        top_left_corner[1] : top_left_corner[1] + corner_window,
+        0
+    ]
+    top_right_clrs = image_hsv[
+        top_right_corner[0] : top_right_corner[0] + corner_window,
+        top_right_corner[1] - corner_window : top_right_corner[1],
+        0
+    ]
+    bot_left_crls = image_hsv[
+        bot_left_corner[0] - corner_window : bot_left_corner[0],
+        bot_left_corner[1] : bot_left_corner[1] + corner_window,
+        0
+    ]
+    bot_right_crls = image_hsv[
+        bot_right_corner[0] - corner_window : bot_right_corner[0],
+        bot_right_corner[1] - corner_window : bot_right_corner[1],
+        0
+    ]
 
-    # top_left_clrs = np.mean(top_left_clrs)
-    # top_right_clrs = np.mean(top_right_clrs)
-    # bot_left_crls = np.mean(bot_left_crls)
-    # bot_right_crls = np.mean(bot_right_crls)
+    top_left_clrs = np.mean(top_left_clrs)
+    top_right_clrs = np.mean(top_right_clrs)
+    bot_left_crls = np.mean(bot_left_crls)
+    bot_right_crls = np.mean(bot_right_crls)
 
-    # bg_clrs.append(np.where(abs(image_hsv - top_left_clrs) <= 10))
-    # bg_clrs.append(np.where(abs(image_hsv - top_right_clrs) <= 10))
-    # bg_clrs.append(np.where(abs(image_hsv - bot_left_crls) <= 10))
-    # bg_clrs.append(np.where(abs(image_hsv - bot_right_crls) <= 10))
+    test_delta = 5
+
+    bg_clrs.append(np.where(abs(image_hsv - top_left_clrs) <= test_delta))
+    bg_clrs.append(np.where(abs(image_hsv - top_right_clrs) <= test_delta))
+    bg_clrs.append(np.where(abs(image_hsv - bot_left_crls) <= test_delta))
+    bg_clrs.append(np.where(abs(image_hsv - bot_right_crls) <= test_delta))
 
 
     #delta = 30 works well with red background
-    delta = 40
+    # delta = int(window_size * 1.2)
 
     #points around the center point
     # center_x1 = center_x - delta
@@ -176,8 +178,10 @@ def thresholdHandYCbCr(image):
     )
 
     se_window = 5
-    # for i in range(len(bg_clrs)):
-    #     skin_cr_threshold[bg_clrs[i][0], bg_clrs[i][1]] = 0
+
+    for i in range(len(bg_clrs)):
+        skin_cr_threshold[bg_clrs[i][0], bg_clrs[i][1]] = 0
+
     skin_cr_threshold = closing(skin_cr_threshold, np.ones((se_window, se_window), np.uint8))
 
     # return cv2.bitwise_or(skin_cr_threshold,skin_hsv_threshold)
@@ -265,8 +269,6 @@ def get_num_fingers(
     # Test using distance transform
     dis_trans_window = 10
 
-    
-
     dis_trans = distance_transform_edt(thresholded, return_distances=True)
     palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
 
@@ -343,12 +345,6 @@ def get_num_fingers(
 
     # Get the center of each contour remove the outlier
     #  if there's more than one contour
-    contour_centers = []
-    if len(contours) > 1:
-        for cont in contours:
-            contour_centers.append((np.mean(int(cont[:, :, 0][0])), np.mean(int(cont[:, :, 1][0]))))
-
-    
 
     # Reject short branches that are the result of noise
     min_cnt_len = max(c, r) * 2
@@ -365,6 +361,7 @@ def get_num_fingers(
         num_fingers_list.pop(0)
 
     intersection_positions = np.argwhere(anded == 255)
+
 
     return (
         int(np.mean(num_fingers_list)),
