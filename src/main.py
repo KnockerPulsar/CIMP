@@ -235,14 +235,17 @@ def get_num_fingers(
         dis_trans, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_NONE
     )
 
-    # Get the center of each contour remove the outlier
-    #  if there's more than one contour
+    # Get the center of each contour, remove the outlier
+    # if there's more than one contour
+    # We will assume that the orientation is always vertical
+    # given that, we will filter contours below a certain threshold to make decrease number of outliers
     contour_centers = []
     if len(contours) > 1:
-        for cont in contours:
-            contour_centers.append(
-                (np.mean(int(cont[:, :, 0][0])), np.mean(int(cont[:, :, 1][0])))
-            )
+        for index, cont in enumerate(contours):
+            if np.mean(contours[index]) < palm_center_j:
+                contour_centers.append(
+                    (np.mean(int(cont[:, :, 0][0])), np.mean(int(cont[:, :, 1][0])))
+                )
 
     for contour_center in contour_centers:
         dis_trans = cv2.line(
@@ -277,23 +280,16 @@ def get_num_fingers(
             wrist_in_img = True
 
     # Gamal tried using this to number the contours, but the numbers kept changing, did not stick to a single contour
-    # for i in range(len(contour_centers)):
-    #     img_stages[0] = cv2.putText(
-    #         img_stages[0],
-    #         str(i),
-    #         (int(contour_centers[i][0]), int(contour_centers[i][1])),
-    #         cv2.FONT_HERSHEY_COMPLEX,
-    #         0.5,
-    #         (10, 255, 0),
-    #         1,
-    #     )
-
-    # tried to cancel out the contours below half of the bounding box
-    # if we don't count rotation this is a reasonable way to remove outliers
-    # but the results weren't as expected
-    for index, contour_center in enumerate(contour_centers):
-        if np.mean(contour_centers[index]) > ymax * 0.5:
-            contour_centers.pop(index)
+    for i in range(len(contour_centers)):
+        img_stages[0] = cv2.putText(
+            img_stages[0],
+            str(i),
+            (int(contour_centers[i][0]), int(contour_centers[i][1])),
+            cv2.FONT_HERSHEY_COMPLEX,
+            0.5,
+            (135, 50, 168),
+            2,
+        )
 
     # Reject short branches that are the result of noise
     # min_cnt_len = max(c, r) * 2
@@ -434,21 +430,23 @@ def main():
             # but apparently the contours are succeptible to noise and keep rotating so 0 and 1 are not ideal
             # we at some point added a condition to check for len(contour_centers) as well
             # but that made the window focus on the wrist without the raised index finger for some reason
-            if draw_command and contour_centers:
-                if num_fingers == 1:
-                    xpos = contour_centers[0][0] + xmin
-                    ypos = contour_centers[0][1] + ymin
-                    draw_buffer = draw(
-                        (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
-                    )
-                elif num_fingers == 2:
-                    xpos = contour_centers[1][0] + xmin
-                    ypos = contour_centers[1][1] + ymin
-                    draw_buffer = draw(
-                        (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
-                    )
-                elif num_fingers > 4:
-                    draw_buffer.fill(0)
+
+            # comment this for now to work on stabilizing the contours
+            # if draw_command and contour_centers:
+            #     if num_fingers == 1 and len(contour_centers) == 1:
+            #         xpos = contour_centers[0][0] + xmin
+            #         ypos = contour_centers[0][1] + ymin
+            #         draw_buffer = draw(
+            #             (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
+            #         )
+            #     elif num_fingers == 2 and len(contour_centers) == 2:
+            #         xpos = contour_centers[1][0] + xmin
+            #         ypos = contour_centers[1][1] + ymin
+            #         draw_buffer = draw(
+            #             (xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0)
+            #         )
+            #     elif num_fingers > 4:
+            #         draw_buffer.fill(0)
 
             # Paint the buffer on top of the base webcam image
             frame = overlay_images([frame, draw_buffer])
