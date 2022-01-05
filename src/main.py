@@ -1,14 +1,7 @@
-from cv2 import (
-    bitwise_not,
-    dilate,
-    distanceTransform,
-    ellipse,
-    erode,
-    findContours,
-    putText,
-    threshold,
-)
-from numpy import random
+from cv2 import bitwise_not, erode, findContours
+from cv2 import distanceTransform, ellipse, erode, findContours, threshold
+from numpy import histogram, random
+from numpy.core.fromnumeric import shape
 from numpy.random.mtrand import randint
 from scipy.ndimage.filters import median_filter
 from scipy.sparse.construct import rand
@@ -31,9 +24,14 @@ from skimage.morphology import (
     binary_erosion,
 )
 from skimage.draw import ellipse_perimeter, circle_perimeter, disk, line
+from skimage.morphology import skeletonize, closing, erosion
+from skimage.draw import ellipse_perimeter, circle_perimeter, disk
+from skimage import feature, exposure
 import mediapipe as mp
 
 from sklearn.cluster import KMeans
+
+USE_MEDIAPIPE = False
 
 mp_hands = mp.solutions.hands
 
@@ -399,6 +397,76 @@ def get_num_fingers(
     )
 
 
+def meanShiftHandTracking(
+    backsub,
+    frame,
+    roi_captured,
+    channels,
+    roi_hist,
+    ranges,
+    track_window,
+    term_crit,
+    x,
+    y,
+    w,
+    h,
+    sizes,
+):
+    fg_mask = backsub.apply(frame)
+    fg = cv2.bitwise_and(frame, frame, mask=fg_mask)
+
+    hsv_fg = cv2.cvtColor(fg, cv2.COLOR_BGR2HSV)
+
+    # https://stackoverflow.com/questions/8593091/robust-hand-detection-via-computer-vision?noredirect=1&lq=1
+    # https://docs.opencv.org/3.4/da/d7f/tutorial_back_projection.html
+
+    # Tracking mode
+    # Mean shift seems to be more stable than camshift
+    if roi_captured:
+
+        backproj = cv2.calcBackProject([hsv_fg], channels, roi_hist, ranges, scale=3)
+
+        ret, track_window = cv2.meanShift(backproj, track_window, term_crit)
+
+        # # Cam shift
+        # # pts = cv2.boxPoints(ret)
+        # # pts = np.int0(pts)
+        # # frame = cv2.polylines(frame, [pts], True, 255, 2)
+        # # if(pts.min() == pts.max() == 0):
+        # #     roi_captured = False
+
+        # Mean shift
+        x, y, w, h = track_window
+        frame = cv2.rectangle(fg, (x, y), (x + w, y + h), 255, 2)
+
+    else:
+        # Capture a ROI to use as a search target later on
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord("e"):
+            roi = hsv_fg[y : y + h, x : x + w]
+
+            # Remove the value channel
+            roi[:, :, 2] = 0
+
+            # For some reason, doing the opposite of
+            # "3. Threshold pixels with low saturation due to their instability."
+            # works better
+            mask = cv2.inRange(roi, (0, 5, 0), (180, 50, 255))
+
+            roi_hist = cv2.calcHist(
+                [roi], channels, mask, sizes, ranges, accumulate=False
+            )
+            cv2.normalize(
+                roi_hist, roi_hist, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX
+            )
+            # Go into tracking mode
+            roi_captured = True
+
+        cv2.rectangle(frame, (x, y), (x + w, y + h), 255, 2)
+
+    return (x, y, w, h)
+
+
 def main():
     win_name = "Virtual Board?"
     dis_trans_list_i = []
@@ -419,10 +487,223 @@ def main():
     num_fingers_list = []
     num_fingers_window = 5
 
+    pointer_pos_image_coordinates = (-1, -1)
+    draw_command = False
+    num_fingers = 0
+
     print(
-        "\nPress the number keys to view different stages of finger detection"
-        "\nThreshilding, skeletonization, anding, ording, etc..."
+        """
+        Press "e" with your hand inside the blue region to start tracking
+        Try to keep the background free of highlights or white objects
+        """
     )
+
+    term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 100, 10)
+
+    ms_xstart = int(draw_buffer.shape[1] * 0.25)
+    ms_ystart = int(draw_buffer.shape[0] * 0.25)
+
+    ms_width = int(draw_buffer.shape[1] * 0.3)
+    ms_height = int(draw_buffer.shape[0] * 0.4)
+
+    x, y, w, h = (
+        ms_xstart,
+        ms_ystart,
+        ms_width,
+        ms_height,
+    )
+    track_window = (x, y, w, h)
+    roi_captured = False
+
+    sizes = [180, 255]  # How large the the samples for hue and saturation are
+    ranges = [0, 180, 0, 255]  # The range of values for hue and saturation
+    channels = [0, 1]  # 0-> Hue, 1->Sat.
+
+    roi = None
+    roi_hist = None
+    backsub = cv2.createBackgroundSubtractorKNN(history=500, dist2Threshold=150)
+
+    xmin = 0
+    ymin = 0
+    xmax = 0
+    ymax = 0
+
+    while loop:
+        # To calculate FPS
+        start_time = time()  # time()
+
+        # Checck if the thread has a new frame
+        frame_available, frame = webcam.get_frame()
+
+        # If there's no new frame, use the previous one
+        if not frame_available:
+            frame = prev_frame
+
+        # flip frame
+        frame = cv2.flip(frame, 1)
+
+        x, y, w, h = meanShiftHandTracking(
+            backsub,
+            frame,
+            roi_captured,
+            channels,
+            roi_hist,
+            ranges,
+            track_window,
+            term_crit,
+            x,
+            y,
+            w,
+            h,
+            sizes,
+        )
+        xmin = x
+        ymin = y
+        xmax = x + w
+        ymax = y + h
+        ################################################################################################
+
+        # Thresholds, skeletonizes, and intersects the skeleton with an ellipse
+        # Gets you the number of raised fingers and intersection positions
+        # Also returns some intermediary images to help with debugging
+        (num_fingers, image_stages, contour_centers) = get_num_fingers(
+            frame,
+            xmin,
+            ymin,
+            xmax,
+            ymax,
+            num_fingers_list,
+            num_fingers_window,
+            dis_trans_list_i,
+            dis_trans_list_j,
+        )
+
+        # Change what's shown inside the hand's bounding box
+        view = finger_detection_views(view, image_stages)
+
+        # Based on the number of raised fingers and some more data
+        # Either draw or not
+        # If you're drawing, draw with a specific color
+        # draw_command, draw_color, pointer_pos = do_action(
+        #     num_fingers,
+        #     ,
+        #     xmin,
+        #     ymin,
+        #     draw_buffer,
+        #     image_stages,
+        # )
+
+        # WILL go boom if the image stage (skeleton, thresholded, etc...) is not a 2D array
+        # 1: thresholded, 2: skeleton, 3: anded, 4: ored
+        for i, image_stage in enumerate(image_stages):
+            if view == i + 1:
+                if len(image_stage.shape) == 2:
+                    frame[ymin:ymax, xmin:xmax] = np.stack(
+                        (image_stage, image_stage, image_stage),
+                        axis=2,
+                    )
+                else:
+                    frame[ymin:ymax, xmin:xmax] = image_stage
+
+        ################################################################################################
+
+        # #print(draw_command)
+        # check for number of fingers raised,
+        # I thought that drawing at contour_centers[0] or [1] would do the job
+        # but apparently the contours are succeptible to noise and keep rotating so 0 and 1 are not ideal
+        # we at some point added a condition to check for len(contour_centers) as well
+        # but that made the window focus on the wrist without the raised index finger for some reason
+
+        # comment this for now to work on stabilizing the contours
+        if draw_command and contour_centers:
+            if num_fingers == 1 and len(contour_centers) == 1:
+                xpos = contour_centers[0][0] + xmin
+                ypos = contour_centers[0][1] + ymin
+                draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
+            elif num_fingers == 2 and len(contour_centers) == 2:
+                xpos = contour_centers[1][0] + xmin
+                ypos = contour_centers[1][1] + ymin
+                draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
+            elif num_fingers > 4:
+                draw_buffer.fill(0)
+
+        # Paint the buffer on top of the base webcam image
+        # frame = overlay_images([frame, draw_buffer])
+
+        # Draw the image and UI
+        display_ui(frame, win_name, start_time, num_fingers, display_ui=True)
+
+        # Copy the frame for later use
+        prev_frame = frame
+
+        # Check if we want to quit
+        loop = check_quit()
+
+    # Clean up
+    clean_up(webcam, win_name)
+
+
+def main_2():
+
+    win_name = "Virtual Board?"
+    dis_trans_list_i = []
+    dis_trans_list_j = []
+
+    # Start webcam capture thread, setup window
+    webcam, draw_buffer = init(win_name)
+
+    loop = True
+
+    # A copy of the previous frame in case the thread hasn't received any new ones
+    prev_frame = None
+
+    # For finger detection debugging
+    view = 4
+
+    # Running average
+    num_fingers_list = []
+    num_fingers_window = 5
+
+    pointer_pos_image_coordinates = (-1, -1)
+    draw_command = False
+    num_fingers = 0
+
+    print(
+        """
+        Press "e" with your hand inside the blue region to start tracking
+        Try to keep the background free of highlights or white objects
+        """
+    )
+
+    term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 100, 10)
+
+    ms_xstart = int(draw_buffer.shape[1] * 0.25)
+    ms_ystart = int(draw_buffer.shape[0] * 0.25)
+
+    ms_width = int(draw_buffer.shape[1] * 0.3)
+    ms_height = int(draw_buffer.shape[0] * 0.4)
+
+    x, y, w, h = (
+        ms_xstart,
+        ms_ystart,
+        ms_width,
+        ms_height,
+    )
+    track_window = (x, y, w, h)
+    roi_captured = False
+
+    sizes = [180, 255]  # How large the the samples for hue and saturation are
+    ranges = [0, 180, 0, 255]  # The range of values for hue and saturation
+    channels = [0, 1]  # 0-> Hue, 1->Sat.
+
+    roi = None
+    roi_hist = None
+    backsub = cv2.createBackgroundSubtractorKNN(history=500, dist2Threshold=150)
+
+    xmin = 0
+    ymin = 0
+    xmax = 0
+    ymax = 0
 
     with mp_hands.Hands(
         model_complexity=0,
@@ -430,7 +711,7 @@ def main():
         min_tracking_confidence=0.5,
         static_image_mode=False,
         max_num_hands=1,
-    ) as hands:  # Listens for mouse events
+    ) as hands:
         while loop:
             # To calculate FPS
             start_time = time()  # time()
@@ -445,63 +726,76 @@ def main():
             # flip frame
             frame = cv2.flip(frame, 1)
 
-            pointer_pos_image_coordinates = (-1, -1)
-            draw_command = True
-            contour_centers = []
-            num_fingers = 0
+            if USE_MEDIAPIPE:
+                frame, bbs = get_hand_bbs(frame, hands, 20, True)
+                if len(bbs) > 0:
+                    (xmin, ymin), (xmax, ymax) = bbs[0]
+                else:
+                    continue
 
-            # Get hand(s) bounding box
-            # Uses mediapipe's hand detector
-            frame, hand_bbs = get_hand_bbs(frame, hands)
-
-            ################################################################################################
-
-            # Looping doesn't really matter for now
-            if len(hand_bbs) == 1:
-
-                (xmin, ymin), (xmax, ymax) = hand_bbs[0]
-
-                # Thresholds, skeletonizes, and intersects the skeleton with an ellipse
-                # Gets you the number of raised fingers and intersection positions
-                # Also returns some intermediary images to help with debugging
-                (num_fingers, image_stages, contour_centers) = get_num_fingers(
+            else:
+                x, y, w, h = meanShiftHandTracking(
+                    backsub,
                     frame,
-                    xmin,
-                    ymin,
-                    xmax,
-                    ymax,
-                    num_fingers_list,
-                    num_fingers_window,
-                    dis_trans_list_i,
-                    dis_trans_list_j,
+                    roi_captured,
+                    channels,
+                    roi_hist,
+                    ranges,
+                    track_window,
+                    term_crit,
+                    x,
+                    y,
+                    w,
+                    h,
+                    sizes,
                 )
+                xmin = x
+                ymin = y
+                xmax = x + w
+                ymax = y + h
+                ################################################################################################
 
-                # Change what's shown inside the hand's bounding box
-                view = finger_detection_views(view, image_stages)
+            # Thresholds, skeletonizes, and intersects the skeleton with an ellipse
+            # Gets you the number of raised fingers and intersection positions
+            # Also returns some intermediary images to help with debugging
+            (num_fingers, image_stages, contour_centers) = get_num_fingers(
+                frame,
+                xmin,
+                ymin,
+                xmax,
+                ymax,
+                num_fingers_list,
+                num_fingers_window,
+                dis_trans_list_i,
+                dis_trans_list_j,
+            )
 
-                # Based on the number of raised fingers and some more data
-                # Either draw or not
-                # If you're drawing, draw with a specific color
-                # draw_command, draw_color, pointer_pos = do_action(
-                #     num_fingers,
-                #     ,
-                #     xmin,
-                #     ymin,
-                #     draw_buffer,
-                #     image_stages,
-                # )
+            # Change what's shown inside the hand's bounding box
+            view = finger_detection_views(view, image_stages)
 
-                # WILL go boom if the image stage (skeleton, thresholded, etc...) is not a 2D array
-                # 1: thresholded, 2: skeleton, 3: anded, 4: ored
-                for i, image_stage in enumerate(image_stages):
-                    if view == i + 1:
-                        if len(image_stage.shape) == 2:
-                            frame[ymin:ymax, xmin:xmax] = np.stack(
-                                (image_stage, image_stage, image_stage),
-                                axis=2,
-                            )
-                        else:
-                            frame[ymin:ymax, xmin:xmax] = image_stage
+            # Based on the number of raised fingers and some more data
+            # Either draw or not
+            # If you're drawing, draw with a specific color
+            # draw_command, draw_color, pointer_pos = do_action(
+            #     num_fingers,
+            #     ,
+            #     xmin,
+            #     ymin,
+            #     draw_buffer,
+            #     image_stages,
+            # )
+
+            # WILL go boom if the image stage (skeleton, thresholded, etc...) is not a 2D array
+            # 1: thresholded, 2: skeleton, 3: anded, 4: ored
+            for i, image_stage in enumerate(image_stages):
+                if view == i + 1:
+                    if len(image_stage.shape) == 2:
+                        frame[ymin:ymax, xmin:xmax] = np.stack(
+                            (image_stage, image_stage, image_stage),
+                            axis=2,
+                        )
+                    else:
+                        frame[ymin:ymax, xmin:xmax] = image_stage
 
             ################################################################################################
 
@@ -530,10 +824,10 @@ def main():
                     draw_buffer.fill(0)
 
             # Paint the buffer on top of the base webcam image
-            frame = overlay_images([frame, draw_buffer])
+            # frame = overlay_images([frame, draw_buffer])
 
             # Draw the image and UI
-            display_ui(frame, win_name, start_time, num_fingers)
+            display_ui(frame, win_name, start_time, num_fingers, display_ui=True)
 
             # Copy the frame for later use
             prev_frame = frame
@@ -545,5 +839,8 @@ def main():
     clean_up(webcam, win_name)
 
 
-if __name__ == "__main__":
+# if __name__ == "__main__":
+if USE_MEDIAPIPE:
+    main_2()
+else:
     main()

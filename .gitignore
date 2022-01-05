@@ -1,5 +1,6 @@
 
 *.pyc
 src/mp_env/
+requiremants.txt
 Hands.zip
-*.jpg
+Hands/*
