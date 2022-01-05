@@ -1,6 +1,6 @@
-from cv2 import erode, findContours
+from cv2 import bitwise_not, erode, findContours
 from cv2 import distanceTransform, ellipse, erode, findContours, threshold
-from numpy import random
+from numpy import histogram, random
 from numpy.core.fromnumeric import shape
 from numpy.random.mtrand import randint
 from scipy.ndimage.filters import median_filter
@@ -75,6 +75,7 @@ def main():
 
     roi = None
     roi_hist = None
+    backsub = cv2.createBackgroundSubtractorKNN(history = 500, dist2Threshold=150)
 
     while loop:
         # To calculate FPS
@@ -89,7 +90,11 @@ def main():
 
         # flip frame
         frame = cv2.flip(frame, 1)
-        hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        fg_mask = backsub.apply(frame)
+        fg = cv2.bitwise_and(frame,frame, mask=fg_mask)
+
+        hsv_fg = cv2.cvtColor(fg, cv2.COLOR_BGR2HSV)
 
         pointer_pos_image_coordinates = (-1, -1)
         draw_command = False
@@ -101,32 +106,30 @@ def main():
         # Tracking mode
         # Mean shift seems to be more stable than camshift
         if roi_captured:
-           
-            hsv_frame[:,:,2] = 0
 
             backproj = cv2.calcBackProject(
-                [hsv_frame], channels, roi_hist, ranges, scale=3
+                [hsv_fg], channels, roi_hist, ranges, scale=3
             )
 
             ret, track_window = cv2.meanShift(backproj, track_window, term_crit)
 
-            # Cam shift
-            # pts = cv2.boxPoints(ret)
-            # pts = np.int0(pts)
-            # frame = cv2.polylines(frame, [pts], True, 255, 2)
-            # if(pts.min() == pts.max() == 0):
-            #     roi_captured = False
+            # # Cam shift
+            # # pts = cv2.boxPoints(ret)
+            # # pts = np.int0(pts)
+            # # frame = cv2.polylines(frame, [pts], True, 255, 2)
+            # # if(pts.min() == pts.max() == 0):
+            # #     roi_captured = False
             
             # Mean shift
             x,y,w,h = track_window
-            frame = cv2.rectangle(frame, (x,y), (x+w,y+h), 255,2)
+            frame = cv2.rectangle(fg, (x,y), (x+w,y+h), 255,2)
 
 
         else:
             # Capture a ROI to use as a search target later on
             key = cv2.waitKey(1) & 0xFF
             if key == ord("e"):
-                roi = hsv_frame[y : y + h, x : x + w]
+                roi = hsv_fg[y : y + h, x : x + w]
 
                 # Remove the value channel
                 roi[:,:,2] = 0
