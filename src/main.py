@@ -47,17 +47,8 @@ def lab_seg(img):
     h_bools = np.where((h_lower < H) & (H < h_upper), 255, 0).astype(np.uint8)
     c_bools = np.where((c_lower < C) & (C < c_upper), 255, 0).astype(np.uint8)
 
-    kernel = np.full((3, 3), 1)
-    c_bools = dilation(
-        dilation(erosion(erosion(c_bools, kernel), kernel), kernel), kernel
-    )
 
     return l_bools, a_bools, b_bools, h_bools, c_bools
-    # w, h, _ = tempFrame.shape
-    # gray = np.zeros((w, h))
-    # gray = c_bools  # l_bools & h_bools  # &c_bools
-    ## gray =erosion(gray)
-    # gray = median(gray, kernel, behavior="rank")
 
 
 def main():
