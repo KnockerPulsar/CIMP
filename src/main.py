@@ -31,8 +31,9 @@ import mediapipe as mp
 
 from sklearn.cluster import KMeans
 
-USE_MEDIAPIPE = True
+USE_MEDIAPIPE = False
 USE_MORPH_FINGERS = True
+USE_BACK_SUB = True
 
 mp_hands = mp.solutions.hands
 
@@ -409,11 +410,13 @@ def meanShiftHandTracking(
     h,
     sizes,
 ):
-    global key, roi_captured, roi_hist
+    global key, roi_captured, roi_hist, USE_BACK_SUB
 
-    # fg_mask = backsub.apply(frame)
-    # fg = cv2.bitwise_and(frame, frame, mask=fg_mask)
-    fg = frame
+    if USE_BACK_SUB:
+        fg_mask = backsub.apply(frame)
+        fg = cv2.bitwise_and(frame, frame, mask=fg_mask)
+    else:
+        fg = frame
     hsv_fg = cv2.cvtColor(fg, cv2.COLOR_BGR2HSV)
 
     # https://stackoverflow.com/questions/8593091/robust-hand-detection-via-computer-vision?noredirect=1&lq=1
@@ -668,7 +671,7 @@ def main():
         if num_fingers == 0:
             frame = cv2.putText(
                 frame,
-                "I'm tired",
+                "No Fingers",
                 (int(frame.shape[1] // 2), int(frame.shape[0] // 2)),
                 cv2.FONT_HERSHEY_COMPLEX,
                 0.75,
