@@ -642,20 +642,70 @@ def main():
         # comment this for now to work on stabilizing the contours
         # if finger_centers:
 
-        if num_fingers == 1 and len(finger_centers) == 1:
+        # if num_fingers == 1 and len(finger_centers) == 1:
+        #     xpos = finger_centers[0][0] + xmin
+        #     ypos = finger_centers[0][1] + ymin
+        #     frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
+        #     draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
+        #     print(xpos, ypos)
+        # elif num_fingers == 2 and len(finger_centers) == 2:
+        #     xpos = np.mean(finger_centers[:2][0]) + xmin
+        #     ypos = np.mean(finger_centers[:2][1]) + ymin
+        #     print(xpos, ypos)
+        #     frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
+        #     draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 0, 225, 1.0))
+        # elif num_fingers > 4:
+        #     draw_buffer.fill(0)
+
+        colors_array = [
+            (200, 200, 225, 1.0),
+            (200, 0, 225, 1.0),
+            (102, 223, 228, 0.7),
+            (102, 255, 126, 1),
+            (28, 13, 255, 0.9),
+        ]
+
+        if num_fingers == 0:
+            frame = cv2.putText(
+                frame,
+                "I'm tired",
+                (int(frame.shape[1] // 2), int(frame.shape[0] // 2)),
+                cv2.FONT_HERSHEY_COMPLEX,
+                0.75,
+                (10, 55, 255),
+                3,
+            )
+        elif num_fingers == 1 and len(finger_centers) == 1:
             xpos = finger_centers[0][0] + xmin
             ypos = finger_centers[0][1] + ymin
             frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
-            draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
+            draw_buffer = draw((xpos, ypos), 10, draw_buffer, colors_array[0])
             print(xpos, ypos)
         elif num_fingers == 2 and len(finger_centers) == 2:
             xpos = np.mean(finger_centers[:2][0]) + xmin
             ypos = np.mean(finger_centers[:2][1]) + ymin
             print(xpos, ypos)
             frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
-            draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 0, 225, 1.0))
-        elif num_fingers > 4:
+            draw_buffer = draw((xpos, ypos), 10, draw_buffer, colors_array[1])
+        elif num_fingers == 3 and len(finger_centers) == 3:
+            xpos = np.mean(finger_centers[:3][0]) + xmin
+            ypos = np.mean(finger_centers[:3][1]) + ymin
+            print(xpos, ypos)
+            frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
+            draw_buffer = draw((xpos, ypos), 10, draw_buffer, colors_array[2])
+        elif num_fingers == 4 and len(finger_centers) == 4:
+            xpos = np.mean(finger_centers[:4][0]) + xmin
+            ypos = np.mean(finger_centers[:4][1]) + ymin
+            print(xpos, ypos)
+            frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
+            draw_buffer = draw((xpos, ypos), 10, draw_buffer, colors_array[3])
+        elif num_fingers == 5 and len(finger_centers) == 5:
             draw_buffer.fill(0)
+            # xpos = np.mean(finger_centers[:5][0]) + xmin
+            # ypos = np.mean(finger_centers[:5][1]) + ymin
+            # print(xpos, ypos)
+            # frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
+            # draw_buffer = draw((xpos, ypos), 10, draw_buffer, colors_array[4])
 
         # Paint the buffer on top of the base webcam image
         frame = overlay_images([frame, draw_buffer])
