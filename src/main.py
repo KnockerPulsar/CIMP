@@ -118,7 +118,7 @@ def main():
         # frame = io.imread("./0.jpg")
         kernel=np.full((5,5),1)
         l,a,b, h, c = lab_seg(frame)
-        frame = ~h
+        frame = (l|b)
         #frame=median(dilation(erosion(frame,kernel),kernel))
         frame = cv2.flip(frame, 1)
         # frame = closing(frame, np.full((7, 7), 1))
