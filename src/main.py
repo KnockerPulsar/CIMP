@@ -32,7 +32,7 @@ import mediapipe as mp
 from sklearn.cluster import KMeans
 
 USE_MEDIAPIPE = False
-USE_MORPH_FINGERS = True
+USE_MORPH_FINGERS = False
 
 mp_hands = mp.solutions.hands
 
@@ -321,6 +321,8 @@ def get_num_fingers(
     if len(num_fingers_list) > num_fingers_window:
         num_fingers_list.pop(0)
 
+    print(num_fingers_list)
+
     return (
         int(np.mean(num_fingers_list)),
         img_stages,
@@ -386,7 +388,7 @@ def get_num_fingers_morph(
 
     avg_finger_count = int(np.mean(num_fingers_list))
     # print(avg_finger_count + '//' + len(keypoints))
-    print(num_fingers_list)
+    # print(num_fingers_list)
 
     return (
         avg_finger_count,
@@ -411,9 +413,9 @@ def meanShiftHandTracking(
 ):
     global key, roi_captured, roi_hist
 
-    fg_mask = backsub.apply(frame)
-    fg = cv2.bitwise_and(frame, frame, mask=fg_mask)
-
+    # fg_mask = backsub.apply(frame)
+    # fg = cv2.bitwise_and(frame, frame, mask=fg_mask)
+    fg = frame
     hsv_fg = cv2.cvtColor(fg, cv2.COLOR_BGR2HSV)
 
     # https://stackoverflow.com/questions/8593091/robust-hand-detection-via-computer-vision?noredirect=1&lq=1
@@ -562,7 +564,7 @@ def main():
                 h,
                 sizes,
             )
-
+            y = max(y - 60, 0)
             xmin, ymin = x, y
             xmax, ymax = x + w, y + h
 
@@ -640,20 +642,25 @@ def main():
         # but that made the window focus on the wrist without the raised index finger for some reason
 
         # comment this for now to work on stabilizing the contours
-        if draw_command and finger_centers:
-            if num_fingers == 1 and len(finger_centers) == 1:
-                xpos = finger_centers[0][0] + xmin
-                ypos = finger_centers[0][1] + ymin
-                draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
-            elif num_fingers == 2 and len(finger_centers) == 2:
-                xpos = finger_centers[1][0] + xmin
-                ypos = finger_centers[1][1] + ymin
-                draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
-            elif num_fingers > 4:
-                draw_buffer.fill(0)
+        # if finger_centers:
+
+        if num_fingers == 1 and len(finger_centers) == 1:
+            xpos = finger_centers[0][0] + xmin
+            ypos = finger_centers[0][1] + ymin
+            frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
+            draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
+            print(xpos, ypos)
+        elif num_fingers == 2 and len(finger_centers) == 2:
+            xpos = finger_centers[1][0] + xmin
+            ypos = finger_centers[1][1] + ymin
+            print(xpos, ypos)
+            frame = cv2.circle(frame, (int(xpos), int(ypos)), 5, (255, 0, 0), 2)
+            draw_buffer = draw((xpos, ypos), 10, draw_buffer, (200, 200, 225, 1.0))
+        elif num_fingers > 4:
+            draw_buffer.fill(0)
 
         # Paint the buffer on top of the base webcam image
-        # frame = overlay_images([frame, draw_buffer])
+        frame = overlay_images([frame, draw_buffer])
 
         # Draw the image and UI
         display_ui(frame, win_name, start_time, num_fingers, display_ui=True)
