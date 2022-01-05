@@ -31,9 +31,9 @@ import mediapipe as mp
 
 from sklearn.cluster import KMeans
 
-USE_MEDIAPIPE = False
+USE_MEDIAPIPE = True
 USE_MORPH_FINGERS = True
-USE_BACK_SUB = True
+USE_BACK_SUB = False
 
 mp_hands = mp.solutions.hands
 
