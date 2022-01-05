@@ -189,7 +189,7 @@ def do_action(
     return draw_command, draw_color, pointer_pos
 
 
-def get_num_fingers(
+def get_num_fingers_morph(
     frame,
     xmin,
     ymin,
@@ -326,7 +326,7 @@ def main():
                     image_stages,
                     num_fingers_list,
                     contour_centers,
-                ) = get_num_fingers(
+                ) = get_num_fingers_morph(
                     frame,
                     xmin,
                     ymin,
