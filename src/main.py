@@ -13,7 +13,7 @@ from utils import (
 from utils import overlay_images, draw
 from time import time
 from scipy.ndimage import distance_transform_edt
-from skimage.morphology import binary, skeletonize, closing, erosion, binary_erosion
+from skimage.morphology import binary, skeletonize, opening, closing, erosion, binary_erosion
 from skimage.draw import ellipse_perimeter, circle_perimeter, disk, line
 import mediapipe as mp
 
@@ -117,8 +117,8 @@ def thresholdHandYCbCr(image):
     )
 
     se_window = 5
-    # for i in range(len(bg_clrs)):
-    #     skin_cr_threshold[bg_clrs[i][0], bg_clrs[i][1]] = 0
+    for i in range(len(bg_clrs)):
+        skin_cr_threshold[bg_clrs[i][0], bg_clrs[i][1]] = 0
     skin_cr_threshold = closing(
         skin_cr_threshold, np.ones((se_window, se_window), np.uint8)
     )
@@ -202,11 +202,14 @@ def get_num_fingers(
     # Test using distance transform
     dis_trans_window = 5
 
-    dis_trans = distance_transform_edt(thresholded, return_distances=True)
+    se_size = thresholded.size // 5000
+    test1 = opening(thresholded, np.ones((se_size, se_size)))
+
+    dis_trans = distance_transform_edt(test1, return_distances=True)
     img_stages.append(dis_trans)
 
-    palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
 
+    palm_center_i, palm_center_j = np.unravel_index(dis_trans.argmax(), dis_trans.shape)
     dis_trans_list_i.append(palm_center_i)
     dis_trans_list_j.append(palm_center_j)
     if len(dis_trans_list_i) > dis_trans_window:
@@ -217,7 +220,7 @@ def get_num_fingers(
     center_i = int(np.mean(dis_trans_list_i))
     center_j = int(np.mean(dis_trans_list_j))
 
-    # difference_window = 40
+    difference_window = 40
     if center_i >= dis_trans.shape[0] or center_j >= dis_trans.shape[1]:
         radius = dis_trans[palm_center_i, palm_center_j]
         test = disk((palm_center_i, palm_center_j), radius * 1.8, shape=dis_trans.shape)
@@ -248,12 +251,12 @@ def get_num_fingers(
                 )
 
     for contour_center in contour_centers:
-        dis_trans = cv2.line(
-            dis_trans,
-            (center_i, center_j),
-            (int(contour_center[0]), int(contour_center[1])),
-            255,
-        )
+        l = line(center_i, center_j, int(contour_center[1]), int(contour_center[0]))
+        print(contour_center[0], contour_center[1])
+        try:
+            dis_trans[l] = 255
+        except:
+            print('it happened again')
 
     img_stages.append(dis_trans)
 
